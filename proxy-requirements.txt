@@ -1,0 +1,4 @@
+express
+http-proxy-middleware
+cors
+body-parser

@@ -1,0 +1,40 @@
+{
+  "name": "PR Autopilot",
+  "url": "https://github.com/organizations/YOUR-ORG/settings/apps/pr-autopilot",
+  "hook_attributes": {
+    "url": "https://n8n-veli.zocomputer.io/webhook",
+    "content_type": "json",
+    "secret": "your-webhook-secret",
+    "insecure_ssl": "0"
+  },
+  "events": [
+    "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment",
+    "issue_comment",
+    "check_suite",
+    "check_run"
+  ],
+  "permissions": {
+    "pull_requests": "write",
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "checks": "read"
+  },
+  "default_permissions": {
+    "pull_requests": "write",
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "checks": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment",
+    "issue_comment",
+    "check_suite",
+    "check_run"
+  ]
+}

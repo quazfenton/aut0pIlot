@@ -1,0 +1,91 @@
+{
+  "name": "pullWebhook Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pr-autopilot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "9061a57f-d019-4097-afe2-78a3a4da52c3",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        576,
+        304
+      ],
+      "webhookId": "0d104a21-834a-42c2-9a03-0c3e316fe416",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "executeOnce": false,
+        "command": "cd /home/workspace/Skills/pr-autopilot/n8n-integration && \\\nnode queue-webhook.js \"{{ Buffer.from(JSON.stringify($json.body)).toString('base64') }}\" \"{{ Buffer.from(JSON.stringify($json.headers)).toString('base64') }}\"\n"
+      },
+      "id": "3fbfbadd-5415-44f2-9227-86a4a56a72df",
+      "name": "Queue Webhook",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        864,
+        304
+      ],
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "513c4369-ebbf-4935-82fb-86d38518776a",
+      "name": "Respond 202",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        304
+      ],
+      "notesInFlow": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "GitHub Webhook": {
+      "main": [
+        [
+          {
+            "node": "Queue Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 202",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "b407ce08-f49c-403a-aaa4-0114e75205b4",
+  "meta": {
+    "instanceId": "d5c44b5a3fd9cf90626ae42701a0fd50f17df079f691608f543c524e1441bf28"
+  },
+  "id": "sxFb82VuMtsatneR",
+  "tags": []
+}

@@ -1,0 +1,52 @@
+# PR Autopilot Configuration
+
+autofix:
+  # Enable/disable automatic fixing
+  enabled: true
+
+  # Maximum number of fix iterations before stopping
+  max_iterations: 5
+
+  # Bot usernames whose reviews should be processed
+  # Note: Bot names should match the GitHub username without the [bot] suffix
+  allowed_bots:
+    - coderabbitai      # CodeRabbit AI reviewer
+    - cubic-dev-ai      # Cubic Dev AI reviewer  
+    - coderabbit        # Legacy CodeRabbit name
+    - dependabot
+    - github-actions
+
+  # Risk level determines what changes can be auto-applied
+  # low: only mechanical fixes (suggested changes, formatting)
+  # medium: + context-aware fixes (LLM-assisted)
+  # high: + risky changes (requires human approval)
+  risk_level: medium
+
+  # Branch strategy for applying fixes
+  # update_same_pr: Commit directly to PR branch
+  # helper_pr: Create separate PR for fixes
+  branch_strategy: update_same_pr
+
+  # Whether to require manual approval for Level 3 changes
+  require_approval_for_risky: true
+
+# File patterns to exclude from auto-fix
+exclude_paths:
+  - ".github/"
+  - "*.md"
+  - "package-lock.json"
+  - "yarn.lock"
+
+# Bot-specific overrides
+bot_settings:
+  coderabbitai:
+    # Process all CodeRabbit comments
+    process_all: true
+    # Auto-apply suggested changes from CodeRabbit
+    auto_apply_suggestions: true
+  
+  cubic-dev-ai:
+    # Process all Cubic Dev AI comments
+    process_all: true
+    auto_apply_suggestions: true
+

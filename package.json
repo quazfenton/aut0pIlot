@@ -1,0 +1,27 @@
+{
+  "name": "pr-autopilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bunx tsx scripts/agent.ts",
+    "agent": "bunx tsx scripts/agent.ts",
+    "setup-github-app": "bunx tsx scripts/setup-github-app.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@octokit/rest": "^21.0.0",
+    "@octokit/webhooks": "^12.0.0",
+    "fastify": "^4.9.2",
+    "fastify-raw-body": "^4.0.0",
+    "fs": "^0.0.1-security",
+    "js-yaml": "^4.1.1",
+    "promises": "^0.2.5",
+    "zlib": "^1.0.5"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.2.0",
+    "tsx": "^4.20.0"
+  }
+}
