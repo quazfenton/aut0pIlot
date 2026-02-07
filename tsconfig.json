@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "baseUrl": ".",
-    "types": ["node"]
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
-  "include": ["scripts/**/*.ts"]
+  "include": ["scripts/**/*.ts", "types/**/*.d.ts"]
 }

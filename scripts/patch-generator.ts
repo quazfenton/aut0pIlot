@@ -82,7 +82,7 @@ export class PatchGenerator {
     log.header(`Generating patch for ${request.file}`);
     log.step(`Level: ${level}`);
     log.step(`Lines: ${request.start_line}-${request.end_line}`);
-    log.detail(`Content preview: ${request.content?.replace(/\n/g, '\\n')}...`);
+    log.detail(`Content preview: ${request.content?.replace(/\n/g, '\\n')}`);
     log.detail(`Has diff_hunk: ${!!request.diff_hunk}`);
 
     try {
@@ -95,7 +95,7 @@ export class PatchGenerator {
         const mechanicalPatch = await this.extractGitHubSuggestion(request);
         if (mechanicalPatch) {
           log.success(`Mechanical extraction succeeded!`);
-          log.detail(`Patch preview:\n${mechanicalPatch.substring(0, 300)}...`);
+          log.detail(`Patch preview:\n${mechanicalPatch}`);
           
           const isValid = await this.validatePatch(request.repo, request.commit_sha, mechanicalPatch, request.file);
           if (isValid) {
@@ -165,7 +165,7 @@ export class PatchGenerator {
       return null;
     }
 
-    log.detail(`Suggestion code (${newCode.split('\n').length} lines):\n${newCode.substring(0, 200)}...`);
+    log.detail(`Suggestion code (${newCode.split('\n').length} lines):\n${newCode}`);
 
     log.step(`Fetching file content to build unified diff...`);
     const fileContent = await this.fetchFileWithContext(request);
@@ -175,7 +175,8 @@ export class PatchGenerator {
       return null;
     }
 
-    return this.createUnifiedDiffFromCode(file, start_line, end_line, fileContent, newCode);
+    const resolved = this.resolveTargetRange(request, fileContent);
+    return this.createUnifiedDiffFromCode(file, resolved.start, resolved.end, fileContent, newCode);
   }
 
   /**
@@ -189,7 +190,7 @@ export class PatchGenerator {
     endLine: number
   ): string | null {
     log.step(`buildPatchFromDiffHunk called`);
-    log.detail(`Original diff_hunk:\n${diffHunk.substring(0, 200)}...`);
+    log.detail(`Original diff_hunk:\n${diffHunk}`);
 
     // Parse the diff hunk header to get context
     const headerMatch = diffHunk.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
@@ -307,16 +308,17 @@ export class PatchGenerator {
     const prompt = this.buildLLMPrompt(request, fileContent, level);
     log.detail(`LLM prompt built (${prompt.length} chars)`);
 
-    let effectiveStartLine = request.start_line;
-    let effectiveEndLine = request.end_line;
+    const baseRange = this.resolveTargetRange(request, fileContent);
+    let effectiveStartLine = baseRange.start;
+    let effectiveEndLine = baseRange.end;
     if (request.start_line === request.end_line) {
-      effectiveStartLine = Math.max(1, request.start_line - 20);
-      effectiveEndLine = Math.min(fileContent.lines.length, request.end_line + 5);
+      effectiveStartLine = Math.max(1, baseRange.start - 20);
+      effectiveEndLine = Math.min(fileContent.lines.length, baseRange.end + 5);
     }
 
     // Call Zo Ask API
     log.step(`Calling LLM API...`);
-    const llmResponse = await this.callLLM(prompt);
+    const llmResponse = await this.callLLM(prompt, request);
 
     if (!llmResponse.success) {
       log.error(`LLM call failed: ${llmResponse.error}`);
@@ -337,7 +339,7 @@ export class PatchGenerator {
     }
 
     log.detail(`LLM returned ${llmResponse.output.length} chars`);
-    log.detail(`LLM output preview:\n${llmResponse.output.substring(0, 400)}...`);
+    log.detail(`LLM output preview:\n${llmResponse.output}`);
 
     // Extract and validate the patch
     let patch = this.extractPatchFromResponse(llmResponse.output);
@@ -364,7 +366,27 @@ export class PatchGenerator {
       };
     }
 
-    log.detail(`Extracted patch:\n${patch.substring(0, 400)}...`);
+    // Normalize diff headers to the target file, and reject multi-file diffs
+    const normalized = this.normalizeUnifiedDiff(patch, request.file);
+    if (normalized === null) {
+      log.warn(`LLM returned a multi-file or malformed diff; falling back to code block extraction`);
+      const codeBlock = this.extractCodeBlock(llmResponse.output);
+      if (codeBlock) {
+        const originalLines = fileContent.lines.slice(Math.max(0, effectiveStartLine - 1), Math.min(fileContent.lines.length, effectiveEndLine));
+        const normalizedCode = this.restoreBaselineIndent(codeBlock, originalLines);
+        patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalizedCode);
+      } else {
+        return {
+          success: false,
+          error: 'LLM returned multi-file diff or invalid format',
+          requires_approval: true,
+        };
+      }
+    } else if (normalized) {
+      patch = normalized;
+    }
+
+    log.detail(`Extracted patch:\n${patch}`);
 
     // Validate the patch
     log.step(`Validating patch...`);
@@ -408,7 +430,16 @@ export class PatchGenerator {
           // For testing purposes, create a minimal file if it doesn't exist
           if (process.env.NODE_ENV === 'test' || file.includes('test')) {
             log.detail(`Creating minimal test file for testing purposes`);
-            const mockContent = '// Test file for patch generation\nconsole.log(\'hello\');\nfunction fetchData(url) {\n  return fetch(url).then(r => r.json());\n}\n// End of test';
+            let mockContent = '// Test file for patch generation\nconsole.log(\'hello\');\nfunction fetchData(url) {\n  return fetch(url).then(r => r.json());\n}\n// End of test';
+            if (request.diff_hunk) {
+              const oldLines = request.diff_hunk
+                .split('\n')
+                .filter((line) => line.startsWith(' ') || line.startsWith('-'))
+                .map((line) => line.substring(1));
+              if (oldLines.length > 0) {
+                mockContent = oldLines.join('\n');
+              }
+            }
             fs.writeFileSync(localFilePath, mockContent);
           } else {
             return null;
@@ -565,7 +596,7 @@ export class PatchGenerator {
       return '';
     }
 
-    log.detail(`Generated patch:\n${patch.substring(0, 600)}...`);
+    log.detail(`Generated patch:\n${patch}`);
     return patch;
   }
 
@@ -655,7 +686,10 @@ export class PatchGenerator {
     fileData: FileSnapshot,
     level: number
   ): string {
-    const { file, start_line, end_line, content, diff_hunk } = request;
+    const { file, content, diff_hunk } = request;
+    const baseRange = this.resolveTargetRange(request, fileData);
+    const start_line = baseRange.start;
+    const end_line = baseRange.end;
 
     // For single-line comments, expand scope to allow multi-location fixes (e.g., adding imports)
     let effectiveStartLine = start_line;
@@ -729,7 +763,16 @@ YOUR TASK:
     }
 
     prompt += `
-Return the fixed code in a code block like this:
+Return the fixed code in a unified diff format like this (use the exact file path shown below, no placeholders, and no extra prose):
+${'```diff'}
+--- a/${file}
++++ b/${file}
+@@ -start_line,count +start_line,count @@
+-original line
++new line
+${'```'}
+
+OR if you prefer, return just the fixed code in a code block:
 ${'```'}
 // your fixed code here
 ${'```'}
@@ -739,6 +782,9 @@ IMPORTANT: Follow these rules:
 2. Include all surrounding context lines that are necessary for the fix
 3. If you're making a small change, include the surrounding lines to provide context
 4. Make sure the code block contains the complete fixed section from line ${effectiveStartLine} to ${effectiveEndLine}
+5. If returning diff format, ensure it follows the unified diff standard with proper @@ headers
+6. Make sure +/- signs are correctly applied to indicate removals and additions
+7. Do not include explanations or numbered lists; output only the diff or the code block
 `;
 
     if (level === 3) {
@@ -824,15 +870,21 @@ IMPORTANT: Follow these rules:
     }
   }
 
-  private async callQwen(prompt: string): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
-    return new Promise((resolve, reject) => {
+  private async callQwen(prompt: string, patchRequest?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
+    // For complex scenarios where repository context would be beneficial, use the specialized runner
+    if (patchRequest && patchRequest.repo && patchRequest.commit_sha) {
+      return this.callQwenWithRepositoryContext(prompt, patchRequest);
+    }
+    
+    // For simpler scenarios, use the standard approach
+    return new Promise((resolve) => {
       try {
         log.step(`Calling local qwen CLI (${prompt.length} chars}`);
 
         // Sanitize the prompt to prevent command injection
         const sanitizedPrompt = prompt.replace(/["`$\\]/g, '');
-        
-        const child = spawn('qwen', ['-p', sanitizedPrompt, '--max-session-turns', '1', '-o', 'text'], {
+
+        const child = spawn('qwen', ['-p', sanitizedPrompt, '--max-session-turns', '2', '-o', 'text'], {
           stdio: ['pipe', 'pipe', 'pipe'],
           env: { ...process.env, NO_COLOR: '1' },
           timeout: 120000,
@@ -851,7 +903,11 @@ IMPORTANT: Follow these rules:
 
         const timer = setTimeout(() => {
           child.kill();
-          reject({ success: false, error: 'Qwen CLI timed out', retryable: true });
+          resolve({ 
+            success: false, 
+            error: 'Qwen CLI timed out', 
+            retryable: true 
+          });
         }, 120000);
 
         child.on('close', (code) => {
@@ -861,9 +917,9 @@ IMPORTANT: Follow these rules:
           log.detail(`Qwen returned ${output.length} chars`);
 
           if (code !== 0) {
-            resolve({ 
-              success: false, 
-              error: `Qwen CLI failed with code ${code}: ${errorOutput}`, 
+            resolve({
+              success: false,
+              error: `Qwen CLI failed with code ${code}: ${errorOutput}`,
               retryable: code === 143 // SIGTERM
             });
             return;
@@ -879,18 +935,156 @@ IMPORTANT: Follow these rules:
 
         child.on('error', (error) => {
           clearTimeout(timer);
-          resolve({ success: false, error: `Qwen CLI failed: ${error.message}`, retryable: true });
+          resolve({ 
+            success: false, 
+            error: `Qwen CLI failed: ${error.message}`, 
+            retryable: true 
+          });
         });
       } catch (error: any) {
-        reject({ success: false, error: `Qwen CLI failed: ${error.message}`, retryable: false });
+        resolve({ 
+          success: false, 
+          error: `Qwen CLI failed: ${error.message}`, 
+          retryable: false 
+        });
       }
     });
   }
 
   /**
+   * Call Qwen with repository context for complex scenarios
+   */
+  private async callQwenWithRepositoryContext(prompt: string, patchRequest: PatchRequest): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
+    try {
+      log.step(`Calling specialized Qwen with repository context for ${patchRequest.repo}`);
+      
+      // Execute the specialized runner as a child process
+      const { spawn } = await import('child_process');
+      const args = [
+        'node',
+        './qwen-specialized-runner.js',
+        patchRequest.repo,
+        patchRequest.commit_sha,
+        patchRequest.file,
+        patchRequest.start_line.toString(),
+        patchRequest.end_line.toString(),
+        patchRequest.content,
+        JSON.stringify(patchRequest.suggestions?.map(s => s.code) || [])
+      ];
+      
+      return new Promise((resolve, reject) => {
+        const child = spawn('node', [
+          './qwen-specialized-runner.js',
+          patchRequest.repo,
+          patchRequest.commit_sha,
+          patchRequest.file,
+          patchRequest.start_line.toString(),
+          patchRequest.end_line.toString(),
+          patchRequest.content,
+          JSON.stringify(patchRequest.suggestions?.map(s => s.code) || [])
+        ], {
+          cwd: process.cwd(),
+          stdio: 'pipe',
+          timeout: 300000, // 5 minutes timeout for complex operations
+        });
+
+        let output = '';
+        let errorOutput = '';
+
+        child.stdout.on('data', (data) => {
+          output += data.toString();
+        });
+
+        child.stderr.on('data', (data) => {
+          errorOutput += data.toString();
+        });
+
+        child.on('close', (code) => {
+          if (code === 0 && output.trim()) {
+            log.detail(`Specialized Qwen returned ${output.length} chars`);
+            resolve({ success: true, output: output.trim() });
+          } else {
+            const errorMsg = errorOutput || `Specialized Qwen failed with code ${code}`;
+            log.error(`Specialized Qwen failed: ${errorMsg}`);
+            reject({ success: false, error: errorMsg, retryable: true });
+          }
+        });
+
+        child.on('error', (error) => {
+          log.error(`Error running specialized Qwen: ${error.message}`);
+          reject({ success: false, error: error.message, retryable: true });
+        });
+      });
+    } catch (error: any) {
+      log.error(`Specialized Qwen failed: ${error.message}`);
+      // Fall back to standard Qwen call
+      return new Promise((resolve) => {
+        try {
+          log.step(`Falling back to standard qwen CLI (${prompt.length} chars}`);
+
+          // Sanitize the prompt to prevent command injection
+          const sanitizedPrompt = prompt.replace(/["`$\\]/g, '');
+
+          const child = spawn('qwen', ['-p', sanitizedPrompt, '--max-session-turns', '2', '-o', 'text'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env, NO_COLOR: '1' },
+            timeout: 120000,
+          });
+
+          let output = '';
+          let errorOutput = '';
+
+          child.stdout.on('data', (data) => {
+            output += data.toString();
+          });
+
+          child.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+          });
+
+          const timer = setTimeout(() => {
+            child.kill();
+            resolve({ success: false, error: 'Qwen CLI timed out', retryable: true });
+          }, 120000);
+
+          child.on('close', (code) => {
+            clearTimeout(timer);
+            output = output.toString().trim();
+
+            log.detail(`Qwen returned ${output.length} chars`);
+
+            if (code !== 0) {
+              resolve({
+                success: false,
+                error: `Qwen CLI failed with code ${code}: ${errorOutput}`,
+                retryable: code === 143 // SIGTERM
+              });
+              return;
+            }
+
+            if (!output) {
+              resolve({ success: false, error: 'Qwen returned empty output', retryable: true });
+              return;
+            }
+
+            resolve({ success: true, output });
+          });
+
+          child.on('error', (error) => {
+            clearTimeout(timer);
+            resolve({ success: false, error: `Qwen CLI failed: ${error.message}`, retryable: true });
+          });
+        } catch (fallbackError: any) {
+          resolve({ success: false, error: `Qwen CLI failed: ${fallbackError.message}`, retryable: false });
+        }
+      });
+    }
+  }
+
+  /**
     * Call LLM with configurable priority: Check if Qwen should be used first for complex prompts
     */
-  private async callLLM(prompt: string): Promise<{ success: boolean; output?: string; error?: string }> {
+  private async callLLM(prompt: string, patchRequest?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string }> {
     const geminiAvailable = !!process.env.GEMINI_API_KEY;
     const mistralAvailable = !!process.env.MISTRAL_API_KEY;
     const qwenAvailable = true; // Local CLI is always available if properly installed
@@ -912,7 +1106,7 @@ IMPORTANT: Follow these rules:
     // Standard provider order: Gemini → Mistral → retries → Qwen fallback
     if (!geminiAvailable && !mistralAvailable && !useQwenFirst) {
       log.warn(`No API keys configured, using local qwen CLI`);
-      return this.callQwen(prompt);
+      return this.callQwen(prompt, patchRequest);
     }
 
     // Step 1: Try Gemini first (unless Qwen was used first)
@@ -973,7 +1167,7 @@ IMPORTANT: Follow these rules:
     // Step 4: Last resort — local qwen CLI (if not already tried as primary)
     if (!useQwenFirst) {
       log.warn(`All API providers failed, trying local qwen CLI...`);
-      const qwenResult = await this.callQwen(prompt);
+      const qwenResult = await this.callQwen(prompt, patchRequest);
       if (qwenResult.success) return qwenResult;
       log.llmError(`Qwen fallback failed`);
     }
@@ -1010,8 +1204,110 @@ IMPORTANT: Follow these rules:
       return altCodeBlockMatch[1].trim();
     }
 
+    // Only treat generic code blocks as diffs if they include proper diff headers + hunk
+    const langCodeBlockMatch = response.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
+    if (langCodeBlockMatch) {
+      const content = langCodeBlockMatch[1].trim();
+      const hasHeader = /(^|\n)--- a\//.test(content) && /(^|\n)\+\+\+ b\//.test(content);
+      const hasHunk = /(^|\n)@@/.test(content);
+      if (hasHeader && hasHunk) {
+        log.step(`Found unified diff in generic code block`);
+        return content;
+      }
+    }
+
     log.warn(`No valid diff format found in response`);
     return null;
+  }
+
+  private normalizeUnifiedDiff(patch: string, filePath: string): string | null {
+    const lines = patch.split('\n');
+    const headerIndices: number[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('--- ')) headerIndices.push(i);
+    }
+
+    if (headerIndices.length === 0) {
+      return patch.trim();
+    }
+
+    if (headerIndices.length > 1) {
+      return null;
+    }
+
+    const headerIndex = headerIndices[0];
+    if (headerIndex + 1 >= lines.length || !lines[headerIndex + 1].startsWith('+++ ')) {
+      return null;
+    }
+
+    const cleaned = lines.filter((line) => {
+      return !line.startsWith('diff --git ')
+        && !line.startsWith('index ')
+        && !line.startsWith('new file mode ')
+        && !line.startsWith('deleted file mode ');
+    });
+
+    // Rewrite headers to match the target file path
+    cleaned[headerIndex] = `--- a/${filePath}`;
+    cleaned[headerIndex + 1] = `+++ b/${filePath}`;
+
+    const hasHunk = cleaned.some((line) => line.startsWith('@@ '));
+    if (!hasHunk) {
+      return null;
+    }
+
+    return cleaned.join('\n').trim();
+  }
+
+  private resolveTargetRange(request: PatchRequest, fileData: FileSnapshot): { start: number; end: number } {
+    const totalLines = fileData.lines.length;
+    let start = request.start_line;
+    let end = request.end_line;
+
+    if (start >= 1 && end >= start && end <= totalLines) {
+      return { start, end };
+    }
+
+    if (request.diff_hunk) {
+      const oldLines = request.diff_hunk
+        .split('\n')
+        .filter((line) => line.startsWith(' ') || line.startsWith('-'))
+        .map((line) => line.substring(1));
+
+      if (oldLines.length > 0) {
+        const matchIndex = this.findSequence(fileData.lines, oldLines);
+        if (matchIndex !== -1) {
+          return { start: matchIndex + 1, end: matchIndex + oldLines.length };
+        }
+      }
+    }
+
+    if (totalLines === 0) {
+      return { start: 1, end: 1 };
+    }
+
+    start = Math.min(Math.max(1, start), totalLines);
+    end = Math.min(Math.max(start, end), totalLines);
+
+    return { start, end };
+  }
+
+  private findSequence(haystack: string[], needle: string[]): number {
+    if (needle.length === 0 || needle.length > haystack.length) return -1;
+
+    for (let i = 0; i <= haystack.length - needle.length; i++) {
+      let matches = true;
+      for (let j = 0; j < needle.length; j++) {
+        if (haystack[i + j] !== needle[j]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return i;
+    }
+
+    return -1;
   }
 
   /**
