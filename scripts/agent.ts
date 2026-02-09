@@ -546,7 +546,11 @@ export class PRAutopilotAgent {
           agent_prompt: comment.agent_prompt,
         };
 
-        const patchResult = await this.patchGenerator.generatePatch(patchRequest, level);
+        const patchResult = await this.patchGenerator.generatePatch(
+          patchRequest, 
+          level, 
+          data.config.autofix.use_cli_tools
+        );
 
         if (!patchResult.success || !patchResult.patch) {
           console.log(`[JOB] Patch generation failed for ${comment.id}: ${patchResult.error}`);
@@ -577,7 +581,16 @@ export class PRAutopilotAgent {
         }
       }
 
-      // 4. Run Workflows if enabled
+      // 4. Format files if enabled
+      if (appliedComments.length > 0 && data.config.autofix.format_after_fix) {
+        console.log(`[JOB] Formatting ${appliedComments.length} files`);
+        const uniqueFiles = [...new Set(appliedComments.map(c => c.file))];
+        for (const file of uniqueFiles) {
+          await this.gitOps.formatFile(job.repo, file);
+        }
+      }
+
+      // 5. Run Workflows if enabled
       let workflowFailed = false;
       const workflowResults: { name: string; success: boolean; output: string }[] = [];
       

@@ -18,6 +18,8 @@ export interface PRConfig {
       max_wait_ms?: number;
       max_comments_per_commit?: number;
     };
+    use_cli_tools?: boolean;
+    format_after_fix?: boolean;
   };
   workflows?: {
     enabled: boolean;

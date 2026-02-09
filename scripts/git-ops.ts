@@ -247,6 +247,43 @@ export class GitOps {
     }
   }
 
+  async formatFile(repo: string, filePath: string): Promise<boolean> {
+    const ext = path.extname(filePath).toLowerCase();
+    const repoDir = this.getRepoDir(repo);
+    const fullPath = path.join(repoDir, filePath);
+    
+    if (!fs.existsSync(fullPath)) return false;
+
+    let command = '';
+    if (['.js', '.ts', '.jsx', '.tsx', '.json', '.css', '.md'].includes(ext)) {
+      command = `npx prettier --write "${filePath}"`;
+    } else if (ext === '.py') {
+      // Try ruff first, then black
+      try {
+        execSync(`ruff format "${filePath}"`, { cwd: repoDir, stdio: 'ignore' });
+        return true;
+      } catch {
+        command = `black "${filePath}"`;
+      }
+    } else if (ext === '.go') {
+      command = `gofmt -w "${filePath}"`;
+    } else if (ext === '.rs') {
+      command = `rustfmt "${filePath}"`;
+    }
+
+    if (command) {
+      try {
+        execSync(command, { cwd: repoDir, stdio: 'ignore' });
+        return true;
+      } catch (e) {
+        log.warn(`Formatting failed for ${filePath}: ${String(e)}`);
+        return false;
+      }
+    }
+    
+    return false;
+  }
+
   async getDiff(repo: string, base: string, head?: string): Promise<string> {
     const headRef = head || 'HEAD';
     try {

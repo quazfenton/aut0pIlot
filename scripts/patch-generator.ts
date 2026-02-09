@@ -69,7 +69,8 @@ export class PatchGenerator {
    */
   async generatePatch(
     request: PatchRequest,
-    level: number = 2
+    level: number = 2,
+    useCliTools: boolean = false
   ): Promise<PatchResult> {
     log.header(`Generating patch for ${request.file}`);
     log.step(`Level: ${level}`);
@@ -107,7 +108,7 @@ export class PatchGenerator {
 
       // LLM-assisted generation (with proposed fixes / agent prompt as context)
       log.step(`Using LLM-assisted generation (Level ${level})`);
-      const llmPatch = await this.generateLLMPatch(request, level);
+      const llmPatch = await this.generateLLMPatch(request, level, useCliTools);
       
       return {
         success: llmPatch.success,
@@ -276,7 +277,8 @@ export class PatchGenerator {
    */
   private async generateLLMPatch(
     request: PatchRequest,
-    level: number
+    level: number,
+    useCliTools: boolean = false
   ): Promise<PatchResult> {
     log.step(`generateLLMPatch called for level ${level}`);
     
@@ -346,7 +348,21 @@ export class PatchGenerator {
         log.step(`Found code block, building unified diff`);
         const originalLines = fileContent.lines.slice(Math.max(0, effectiveStartLine - 1), Math.min(fileContent.lines.length, effectiveEndLine));
         const normalized = this.restoreBaselineIndent(codeBlock, originalLines);
-        patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+        
+        if (useCliTools) {
+          // Construct full new content for CLI diffing
+          const beforeLines = fileContent.lines.slice(0, effectiveStartLine - 1);
+          const afterLines = fileContent.lines.slice(effectiveEndLine);
+          const newFullContent = [...beforeLines, normalized, ...afterLines].join('\n');
+          
+          patch = await this.generateDiffWithCli(request.file, fileContent.full_content, newFullContent);
+          if (!patch) {
+            log.warn(`CLI diff failed, falling back to internal generator`);
+            patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+          }
+        } else {
+          patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+        }
       }
     }
 
@@ -380,7 +396,7 @@ export class PatchGenerator {
 
     // If all else fails, try iterative Qwen mode as last resort
     log.warn(`Standard LLM methods failed, trying iterative Qwen mode...`);
-    const iterativeResult = await this.callQwenIterative(request, fileContent, level, 3);
+    const iterativeResult = await this.callQwenIterative(request, fileContent, level, 3, useCliTools);
     
     if (iterativeResult.success) {
       return iterativeResult;
@@ -391,6 +407,60 @@ export class PatchGenerator {
       error: iterativeResult.error || 'Could not generate valid patch',
       requires_approval: true,
     };
+  }
+
+  /**
+   * Use CLI tools (git diff) to generate a robust patch between two full file contents
+   */
+  private async generateDiffWithCli(
+    filePath: string,
+    oldContent: string,
+    newContent: string
+  ): Promise<string | null> {
+    log.step(`generateDiffWithCli called for ${filePath}`);
+    
+    const oldFile = path.join(this.tempDir, `old-${Date.now()}.txt`);
+    const newFile = path.join(this.tempDir, `new-${Date.now()}.txt`);
+    
+    try {
+      fs.writeFileSync(oldFile, oldContent);
+      fs.writeFileSync(newFile, newContent);
+      
+      // Use git diff --no-index for high quality unified diff
+      // We use --no-index because these files are not necessarily in a git repo
+      try {
+        const diff = execSync(`git diff --no-index --patch --unified=3 "${oldFile}" "${newFile}"`, {
+          stdio: 'pipe'
+        }).toString();
+        
+        // git diff --no-index output has the temp file paths, we need to fix them
+        const lines = diff.split('\n');
+        const fixedLines = lines.map(line => {
+          if (line.startsWith('--- ')) return `--- a/${filePath}`;
+          if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
+          return line;
+        });
+        
+        return fixedLines.join('\n');
+      } catch (error: any) {
+        // git diff returns 1 if there are differences, which execSync treats as error
+        if (error.status === 1 && error.stdout) {
+          const diff = error.stdout.toString();
+          const lines = diff.split('\n');
+          const fixedLines = lines.map(line => {
+            if (line.startsWith('--- ')) return `--- a/${filePath}`;
+            if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
+            return line;
+          });
+          return fixedLines.join('\n');
+        }
+        log.error(`CLI diff failed: ${error.message}`);
+        return null;
+      }
+    } finally {
+      if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+      if (fs.existsSync(newFile)) fs.unlinkSync(newFile);
+    }
   }
 
   /**
@@ -1591,7 +1661,8 @@ If no other files need changes, still provide the ADDITIONAL_EDITS section with 
     request: PatchRequest,
     fileContent: FileSnapshot,
     level: number,
-    maxIterations: number = 3
+    maxIterations: number = 3,
+    useCliTools: boolean = false
   ): Promise<PatchResult> {
     log.step(`callQwenIterative called with max ${maxIterations} iterations`);
 
@@ -1649,7 +1720,19 @@ If no other files need changes, still provide the ADDITIONAL_EDITS section with 
         const codeBlock = this.extractCodeBlock(qwenResult.output);
         if (codeBlock) {
           const normalized = this.restoreBaselineIndent(codeBlock, originalLines);
-          patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+          
+          if (useCliTools) {
+            const beforeLines = fileContent.lines.slice(0, effectiveStartLine - 1);
+            const afterLines = fileContent.lines.slice(effectiveEndLine);
+            const newFullContent = [...beforeLines, normalized, ...afterLines].join('\n');
+            
+            patch = await this.generateDiffWithCli(request.file, fileContent.full_content, newFullContent);
+            if (!patch) {
+              patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+            }
+          } else {
+            patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+          }
         }
       }
 
