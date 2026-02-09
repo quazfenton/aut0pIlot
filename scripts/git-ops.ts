@@ -56,10 +56,40 @@ export class GitOps {
 
   async checkout(repo: string, ref: string): Promise<void> {
     const repoDir = this.getRepoDir(repo);
-    try {
-      gitExec(`checkout ${ref}`, repoDir);
-    } catch {
-      gitExec(`checkout -b ${ref} origin/${ref}`, repoDir);
+    const isSha = /^[0-9a-f]{7,40}$/.test(ref);
+
+    if (isSha) {
+      // For commit SHAs: ensure the commit is fetched, then detach HEAD
+      try {
+        gitExec(`cat-file -t ${ref}`, repoDir, { pipe: true });
+      } catch {
+        // Commit not in local history — fetch it
+        try {
+          gitExec(`fetch origin ${ref}`, repoDir, { timeout: 120000 });
+        } catch {
+          // Some servers reject SHA fetches; deepen the shallow clone instead
+          try {
+            gitExec(`fetch --unshallow origin`, repoDir, { timeout: 120000 });
+          } catch {
+            // Already full or still can't find it — last resort full fetch
+            try {
+              gitExec(`fetch origin`, repoDir, { timeout: 120000 });
+            } catch { /* give up fetching, checkout below will decide */ }
+          }
+        }
+      }
+      try {
+        gitExec(`checkout ${ref}`, repoDir);
+      } catch {
+        log.warn(`Could not checkout ${ref}, staying on current HEAD`);
+      }
+    } else {
+      // For branch names: try local checkout, then track from remote
+      try {
+        gitExec(`checkout ${ref}`, repoDir);
+      } catch {
+        gitExec(`checkout -b ${ref} origin/${ref}`, repoDir);
+      }
     }
   }
 
@@ -192,6 +222,31 @@ export class GitOps {
     gitExec(`push -u origin ${branch}`, this.getRepoDir(repo), { timeout: 120000 });
   }
 
+  async runCommand(
+    repo: string, 
+    command: string, 
+    options?: { 
+      env?: Record<string, string>; 
+      timeout?: number; 
+      cwd?: string;
+    }
+  ): Promise<{ success: boolean; output: string }> {
+    const repoDir = this.getRepoDir(repo);
+    const runDir = options?.cwd ? path.join(repoDir, options.cwd) : repoDir;
+    
+    try {
+      const output = execSync(command, { 
+        cwd: runDir, 
+        stdio: 'pipe',
+        env: { ...process.env, ...(options?.env || {}) },
+        timeout: options?.timeout || 300000 // Default 5 mins
+      }).toString();
+      return { success: true, output };
+    } catch (error: any) {
+      return { success: false, output: error.stdout?.toString() || error.stderr?.toString() || error.message };
+    }
+  }
+
   async getDiff(repo: string, base: string, head?: string): Promise<string> {
     const headRef = head || 'HEAD';
     try {
@@ -207,24 +262,36 @@ export class GitOps {
 
   async getDefaultBranch(repo: string): Promise<string> {
     const repoDir = this.getRepoDir(repo);
+
+    // Primary: ask the remote what the HEAD branch is
     try {
       const output = gitExec('remote show origin', repoDir, { pipe: true });
-      const match = output.match(/HEAD branch: (.*)/);
-      if (match) return match[1];
+      const match = output.match(/HEAD branch:\s*(.*)/);
+      if (match && match[1].trim()) return match[1].trim();
+    } catch {
+      // ignore – may fail if remote is unreachable
+    }
+
+    // Secondary: inspect the symbolic ref that origin/HEAD points to
+    try {
+      const symRef = gitExec('symbolic-ref refs/remotes/origin/HEAD', repoDir, { pipe: true });
+      const branch = symRef.replace('refs/remotes/origin/', '');
+      if (branch) return branch;
     } catch {
       // ignore
     }
 
-    // Fallback to checking local/common branches
-    for (const b of ['main', 'master', 'develop', 'features']) {
+    // Fallback: probe common default branch names on the remote
+    for (const b of ['features', 'dev', '000', 'main']) {
       try {
-        gitExec(`rev-parse origin/${b}`, repoDir, { pipe: true });
+        gitExec(`rev-parse --verify origin/${b}`, repoDir, { pipe: true });
         return b;
       } catch {
         // ignore
       }
     }
-    return 'main';
+
+    return 'master';
   }
 
   async getFileContent(repo: string, filePath: string, commit: string): Promise<string | null> {

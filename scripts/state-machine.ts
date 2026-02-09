@@ -176,8 +176,30 @@ export class PRStateMachine {
   }
 
   /**
-   * Get helper branch for a PR (if set)
+   * Add pending comments to a PR
    */
+  addPendingComments(repo: string, pr: number, comments: ParsedReviewComment[]): void {
+    const state = this.getState(repo, pr);
+    const pending = [...(state.pending_comments || [])];
+    
+    for (const comment of comments) {
+      if (!pending.some(c => c.id === comment.id) && !state.comments_processed.includes(comment.id)) {
+        pending.push(comment);
+      }
+    }
+    
+    this.updateState(repo, pr, { pending_comments: pending });
+  }
+
+  /**
+   * Get and clear pending comments for a PR
+   */
+  getAndClearPendingComments(repo: string, pr: number): ParsedReviewComment[] {
+    const state = this.getState(repo, pr);
+    const pending = state.pending_comments || [];
+    this.updateState(repo, pr, { pending_comments: [] });
+    return pending;
+  }
   getHelperBranch(repo: string, pr: number): string | undefined {
     return this.getState(repo, pr).helper_branch;
   }

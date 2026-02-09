@@ -13,12 +13,31 @@ export interface PRConfig {
     risk_level: 'low' | 'medium' | 'high';
     branch_strategy: 'update_same_pr' | 'helper_pr';
     require_approval_for_risky: boolean;
+    batching?: {
+      enabled: boolean;
+      max_wait_ms?: number;
+      max_comments_per_commit?: number;
+    };
+  };
+  workflows?: {
+    enabled: boolean;
+    steps: WorkflowStep[];
   };
   exclude_paths?: string[];
   bot_settings?: Record<string, {
     process_all?: boolean;
     auto_apply_suggestions?: boolean;
   }>;
+}
+
+export interface WorkflowStep {
+  name: string;
+  type: 'patch' | 'command' | 'test' | 'lint';
+  command?: string;
+  env?: Record<string, string>;
+  timeout_ms?: number;
+  working_dir?: string;
+  allow_failure?: boolean;
 }
 
 export interface ExtractedSuggestion {
@@ -73,6 +92,7 @@ export interface PRState {
   iteration: number;
   last_commit?: string;
   comments_processed: string[];
+  pending_comments?: ParsedReviewComment[];
   blocked_reason?: string;
   helper_branch?: string; // The branch where autofixes are pushed (created from PR branch)
 }

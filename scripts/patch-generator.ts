@@ -23,6 +23,30 @@ const log = {
   success: (msg: string) => console.log(`\x1b[1;32m[PATCH] ✓\x1b[0m ${msg}`),
 };
 
+function fetchAndCheckout(sha: string, repoDir: string): boolean {
+  try {
+    gitExec(`cat-file -t ${sha}`, repoDir, { pipe: true });
+  } catch {
+    try {
+      gitExec(`fetch origin ${sha}`, repoDir, { timeout: 120000 });
+    } catch {
+      try {
+        gitExec(`fetch --unshallow origin`, repoDir, { timeout: 120000 });
+      } catch {
+        try {
+          gitExec(`fetch origin`, repoDir, { timeout: 120000 });
+        } catch { /* exhausted fetch strategies */ }
+      }
+    }
+  }
+  try {
+    gitExec(`checkout ${sha}`, repoDir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface FileSnapshot {
   full_content: string;
   lines: string[];
@@ -441,11 +465,9 @@ export class PatchGenerator {
       // Checkout the specific commit
       if (commit_sha) {
         log.step(`Fetching commit ${commit_sha}...`);
-        try {
-          gitExec(`fetch --depth=1 origin ${commit_sha}`, repoDir);
-          gitExec(`checkout ${commit_sha}`, repoDir);
+        if (fetchAndCheckout(commit_sha, repoDir)) {
           log.step(`Checked out ${commit_sha}`);
-        } catch (e) {
+        } else {
           log.warn(`Could not checkout ${commit_sha}, using HEAD`);
         }
       }
@@ -1015,14 +1037,11 @@ IMPORTANT: Follow these rules:
     // Convert \\n at end of lines to actual newlines
     content = content.replace(/\\\n/g, '\n');
     
-    // Handle escaped backslash-newline sequences
-    content = content.replace(/\\\n/g, '\n');
-
     // Now unescape individual characters
     const unescaped = content
       .replace(/\\-/g, '-')      // \- -> -
       .replace(/\\\+/g, '+')      // \+ -> +
-      .replace(/\\n/g, '\n')     // \n -> newline (if any remain)
+      .replace(/\\n/g, '\n')     // \n -> newline
       .replace(/\\t/g, '\t')     // \t -> tab
       .replace(/\\r/g, '\r')     // \r -> carriage return
       .replace(/\\"/g, '"')      // \" -> "
@@ -1036,29 +1055,15 @@ IMPORTANT: Follow these rules:
       .replace(/\\\\/g, '\\');    // \\ -> \
 
     // Fix common LLM errors in hunk headers
-    // Fix single-@ hunk headers (Qwen sometimes outputs @ instead of @@)
-    let fixed = unescaped.replace(/(^|\n)@ -(\d+),(\d+) \+(\d+),(\d+) @@/g, '$1@@ -$2,$3 +$4,$5 @@');
-    fixed = fixed.replace(/(^|\n)@ -(\d+) \+(\d+) @@/g, '$1@@ -$2 +$3 @@');
+    // Fix single-@ hunk headers
+    let fixed = unescaped.replace(/(^|\n)@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g, (match, p1, p2, p3, p4, p5) => {
+      return `${p1}@@ -${p2}${p3 ? "," + p3 : ""} +${p4}${p5 ? "," + p5 : ""} @@`;
+    });
+    // Qwen sometimes outputs @ instead of @@
+    fixed = fixed.replace(/(^|\n)@ -(\d+)/g, '$1@@ -$2');
     
     // Space before @@
     fixed = fixed.replace(/(^|\n) +@+/g, '$1@@');
-
-    // Fix empty context lines (git apply requires a space even for empty lines)
-    // Find lines that are just whitespace and ensure they have exactly one space if they are context
-    const lines = fixed.split('\n');
-    const fixedLines = lines.map((line, idx) => {
-      // If it's an empty line inside a hunk, it should probably have a space prefix
-      // We check if it's between a hunk header and the next header/end
-      if (line === '' && idx > 0) {
-        // Look back for a hunk header to see if we're in a hunk
-        for (let i = idx - 1; i >= 0; i--) {
-          if (lines[i].startsWith('@@')) return ' ';
-          if (lines[i].startsWith('---') || lines[i].startsWith('+++')) break;
-        }
-      }
-      return line;
-    });
-    fixed = fixedLines.join('\n');
 
     // Fix broken hunk headers with regex artifacts (like $3,$4)
     fixed = fixed.replace(/@@ -(\d+)(?:,\d+)? \+(?:\$3|\d+)(?:,\$4|,\d+)? @@/g, (match, start) => {
@@ -1069,7 +1074,29 @@ IMPORTANT: Follow these rules:
       return match;
     });
 
-    return fixed;
+    // Fix context lines missing space prefix
+    // This is now also handled in repairIncompletePatch, but doing it here helps initial validation
+    const lines = fixed.split('\n');
+    let inHunk = false;
+    const fixedLines = lines.map((line) => {
+      if (line.startsWith('@@')) {
+        inHunk = true;
+        return line;
+      }
+      if (line.startsWith('---') || line.startsWith('+++')) {
+        inHunk = false;
+        return line;
+      }
+      if (inHunk) {
+        if (line === '') return ' ';
+        if (!line.startsWith('+') && !line.startsWith('-') && !line.startsWith(' ') && !line.startsWith('\\')) {
+          return ' ' + line;
+        }
+      }
+      return line;
+    });
+
+    return fixedLines.join('\n');
   }
 
   private normalizeUnifiedDiff(patch: string, filePath: string): string | null {
@@ -1194,31 +1221,33 @@ IMPORTANT: Follow these rules:
 
       try {
         // Try to checkout the specific commit, but don't fail if it doesn't exist
-        // Just use current HEAD instead
         if (commitSha) {
-          try {
-            gitExec(`rev-parse --verify ${commitSha}`, repoDir, { pipe: true });
-            gitExec(`checkout ${commitSha}`, repoDir);
+          if (fetchAndCheckout(commitSha, repoDir)) {
             log.detail(`Checked out commit ${commitSha}`);
-          } catch (checkoutError) {
+          } else {
             log.warn(`Could not checkout ${commitSha}, using current HEAD`);
-            // Stay on current HEAD - that's fine for validation
           }
         }
 
         // Try to apply the patch with --check (dry-run)
         log.step(`Running: git apply --check ${patchFile}`);
-        gitExec(`apply --check "${patchFile}"`, repoDir, { pipe: true, timeout: 10000 });
-
-        log.success(`Patch validation PASSED`);
-        fs.unlinkSync(patchFile);
-        return true;
-      } catch (applyError: any) {
-        log.error(`Patch validation FAILED: ${applyError.message}`);
-        log.detail(`Failed patch content:\n${patch}`);
-        fs.unlinkSync(patchFile);
-        return false;
-      }
+        try {
+          gitExec(`apply --check --verbose "${patchFile}"`, repoDir, { pipe: true, timeout: 10000 });
+          log.success(`Patch validation PASSED`);
+          fs.unlinkSync(patchFile);
+          return true;
+        } catch (error: any) {
+          // If verbose check failed, try to get more specific info
+          log.error(`Patch validation FAILED: ${error.message}`);
+          
+          // Log specific git error details if available
+          if (error.stdout) log.detail(`Git stdout: ${error.stdout}`);
+          if (error.stderr) log.detail(`Git stderr: ${error.stderr}`);
+          
+          log.detail(`Failed patch content:\n${patch}`);
+          fs.unlinkSync(patchFile);
+          return false;
+        }
     } catch (error: any) {
       log.error(`Error during validation: ${error.message}`);
       return false;
@@ -1239,7 +1268,7 @@ IMPORTANT: Follow these rules:
   }
 
   /**
-   * Repair an incomplete or malformed patch by recalculating hunk headers
+   * Repair an incomplete or malformed patch by recalculating hunk headers for all hunks
    */
   private repairIncompletePatch(
     patch: string,
@@ -1253,7 +1282,6 @@ IMPORTANT: Follow these rules:
     }
 
     // Note: patch is already unescaped by extractPatchFromResponse -> unescapePatchContent
-    // but we'll do a quick pass for common artifacts that might have been missed
     let workingPatch = patch;
 
     // Fix single-@ hunk headers and space before @@
@@ -1261,127 +1289,93 @@ IMPORTANT: Follow these rules:
     workingPatch = workingPatch.replace(/(^|\n) +@@/g, '$1@@');
 
     const lines = workingPatch.split('\n');
+    const resultLines: string[] = [];
+    let i = 0;
 
-    // Find hunk header with more flexible pattern
-    const hunkHeaderIndex = lines.findIndex(l => 
-      l.startsWith('@@ ') || 
-      /^@ -\d+/.test(l)  // Also match single-@ headers
-    );
-    
-    if (hunkHeaderIndex === -1) {
+    // Preserve headers before the first hunk
+    while (i < lines.length && !lines[i].startsWith('@@')) {
+      resultLines.push(lines[i]);
+      i++;
+    }
+
+    if (i >= lines.length) {
       log.detail(`No hunk header found in patch`);
       return null;
     }
 
-    // Normalize any single-@ headers to @@
-    let hunkHeader = lines[hunkHeaderIndex];
-    if (hunkHeader.startsWith('@ ') && !hunkHeader.startsWith('@@ ')) {
-      hunkHeader = '@@' + hunkHeader.substring(1);
-      lines[hunkHeaderIndex] = hunkHeader;
-    }
+    while (i < lines.length) {
+      if (lines[i].startsWith('@@')) {
+        const hunkHeaderIndex = i;
+        let hunkHeader = lines[i];
 
-    const hunkMatch = hunkHeader.match(/@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
-
-    if (!hunkMatch) {
-      // Try simpler pattern without counts
-      const simpleMatch = hunkHeader.match(/@@ -(\d+) \+(\d+) @@/);
-      if (!simpleMatch) {
-        log.detail(`Could not parse hunk header: ${hunkHeader}`);
-        return null;
-      }
-      // Header without counts - assume single line
-      log.detail(`Found simplified hunk header, will add counts`);
-    }
-
-    const oldStartMatch = hunkHeader.match(/@@ -(\d+)/);
-    const newStartMatch = hunkHeader.match(/ \+(\d+)/);
-    
-    if (!oldStartMatch) {
-      log.detail(`Could not find old start line in hunk header: ${hunkHeader}`);
-      return null;
-    }
-
-    const oldStart = parseInt(oldStartMatch[1], 10);
-    const declaredOldCount = hunkMatch ? parseInt(hunkMatch[2], 10) : 1;
-    const newStart = newStartMatch ? parseInt(newStartMatch[1], 10) : oldStart;
-    const declaredNewCount = hunkMatch ? parseInt(hunkMatch[4], 10) : 1;
-
-    // Count actual lines in the hunk
-    let actualContextLines = 0;
-    let actualRemovedLines = 0;
-    let actualAddedLines = 0;
-
-    for (let i = hunkHeaderIndex + 1; i < lines.length; i++) {
-      const line = lines[i];
-      // End of hunk or start of next hunk
-      if (line.startsWith('@@') || line.startsWith('diff') || line.startsWith('index')) {
-        break;
-      }
-
-      // Empty lines in the middle of a hunk are context lines (missing their space prefix)
-      if (line === '' || line.startsWith(' ')) {
-        actualContextLines++;
-        // Ensure context lines have exactly one space prefix for git apply
-        if (line === '') {
-          lines[i] = ' ';
-        } else if (line.startsWith('  ') && !line.trim()) {
-           // It's just whitespace, normalize to single space
-           lines[i] = ' ';
+        // Normalize single-@ headers to @@
+        if (hunkHeader.startsWith('@ ') && !hunkHeader.startsWith('@@ ')) {
+          hunkHeader = '@@' + hunkHeader.substring(1);
         }
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
-        actualRemovedLines++;
-      } else if (line.startsWith('+') && !line.startsWith('+++')) {
-        actualAddedLines++;
-      } else {
-        // Line without any prefix - assume context line missing its space
-        log.detail(`Line ${i} missing prefix, assuming context: "${line.substring(0, 20)}..."`);
-        lines[i] = ' ' + line;
-        actualContextLines++;
-      }
-    }
 
-    const correctOldCount = actualContextLines + actualRemovedLines;
-    const correctNewCount = actualContextLines + actualAddedLines;
+        const hunkMatch = hunkHeader.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+        if (!hunkMatch) {
+          log.detail(`Could not parse hunk header: ${hunkHeader}`);
+          resultLines.push(lines[i]);
+          i++;
+          continue;
+        }
 
-    log.detail(`Header check: declared old=${declaredOldCount}, actual=${correctOldCount}`);
-    log.detail(`Header check: declared new=${declaredNewCount}, actual=${correctNewCount}`);
+        const oldStart = parseInt(hunkMatch[1], 10);
+        const declaredOldCount = hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1;
+        const newStart = parseInt(hunkMatch[3], 10);
+        const declaredNewCount = hunkMatch[4] ? parseInt(hunkMatch[4], 10) : 1;
 
-    // If counts match, patch might have other issues
-    if (correctOldCount === declaredOldCount && correctNewCount === declaredNewCount) {
-      log.detail(`Hunk line counts are correct, patch may have context mismatch`);
-      
-      // Try adding trailing context lines
-      const endLine = oldStart + correctOldCount - 1;
-      const trailingContextNeeded = Math.min(3, fileContent.lines.length - endLine);
-      
-      if (trailingContextNeeded > 0) {
-        log.detail(`Adding ${trailingContextNeeded} trailing context lines`);
-        const newLines = [...lines];
-        for (let i = 0; i < trailingContextNeeded; i++) {
-          const lineIdx = endLine + i;
-          if (lineIdx < fileContent.lines.length) {
-            newLines.push(' ' + fileContent.lines[lineIdx]);
+        // Count actual lines in this hunk
+        let actualContextLines = 0;
+        let actualRemovedLines = 0;
+        let actualAddedLines = 0;
+        const hunkContentLines: string[] = [];
+
+        i++; // Move past header
+        while (i < lines.length) {
+          const line = lines[i];
+          // End of hunk or start of next hunk/file
+          if (line.startsWith('@@') || line.startsWith('diff') || line.startsWith('---') || line.startsWith('index')) {
+            break;
           }
+
+          if (line === '' || line.startsWith(' ')) {
+            actualContextLines++;
+            // Ensure context lines have exactly one space prefix
+            hunkContentLines.push(line === '' ? ' ' : (line.startsWith('  ') && !line.trim() ? ' ' : line));
+          } else if (line.startsWith('-')) {
+            actualRemovedLines++;
+            hunkContentLines.push(line);
+          } else if (line.startsWith('+')) {
+            actualAddedLines++;
+            hunkContentLines.push(line);
+          } else {
+            // Missing prefix, assume context
+            hunkContentLines.push(' ' + line);
+            actualContextLines++;
+          }
+          i++;
         }
-        return newLines.join('\n');
+
+        const correctOldCount = actualContextLines + actualRemovedLines;
+        const correctNewCount = actualContextLines + actualAddedLines;
+
+        log.detail(`Hunk at line ${hunkHeaderIndex}: old=${declaredOldCount}->${correctOldCount}, new=${declaredNewCount}->${correctNewCount}`);
+        
+        const correctedHeader = `@@ -${oldStart},${correctOldCount} +${newStart},${correctNewCount} @@`;
+        resultLines.push(correctedHeader);
+        resultLines.push(...hunkContentLines);
+      } else {
+        resultLines.push(lines[i]);
+        i++;
       }
-      
-      // Return the unescaped patch even if counts match
-      return workingPatch;
     }
 
-    // Rebuild the patch with corrected header
-    log.step(`Rebuilding patch with corrected header`);
+    // Final check for trailing context if it's a single hunk and counts matched but it failed
+    // (This part is tricky with multiple hunks, so we only do it if resultLines has changed or we suspect mismatch)
     
-    const correctedHeader = `@@ -${oldStart},${correctOldCount} +${newStart},${correctNewCount} @@`;
-    
-    const newPatchLines = [
-      ...lines.slice(0, hunkHeaderIndex),
-      correctedHeader,
-      ...lines.slice(hunkHeaderIndex + 1)
-    ];
-
-    return newPatchLines.join('\n');
+    return resultLines.join('\n');
   }
 
   /**
@@ -1465,10 +1459,9 @@ IMPORTANT: Follow these rules:
         const cloneUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${request.repo}.git`;
         gitExec(`clone --depth=1 ${cloneUrl} ${projectDir}`, this.tempDir, { timeout: 120000 });
         if (request.commit_sha) {
-          try {
-            gitExec(`fetch --depth=1 origin ${request.commit_sha}`, projectDir);
-            gitExec(`checkout ${request.commit_sha}`, projectDir);
-          } catch (e) {
+          if (fetchAndCheckout(request.commit_sha, projectDir)) {
+            log.step(`Checked out ${request.commit_sha} in Qwen clone`);
+          } else {
             log.warn(`Could not checkout ${request.commit_sha} in Qwen clone, using default branch`);
           }
         }
@@ -1515,14 +1508,22 @@ This file is part of a larger codebase. Below are related files that may need to
 
 DISCOVERY MODE:
 Analyze the codebase and identify if the fix requested requires changes in multiple files. 
-If so, list ALL files that need modification with brief descriptions of what needs to change in each.
+Consider cross-file dependencies, interface changes, and required imports.
+
+If multiple files need changes, list ALL of them.
 
 RESPONSE FORMAT:
-1. First, provide the diff for the primary file as requested.
-2. Then, add a section titled "ADDITIONAL_EDITS:" followed by a JSON array of objects with:
-   - file: path to the file
-   - reason: brief explanation of what needs to change
-   - suggested_change: optional code snippet or description
+1. First, provide the unified diff for the primary file: ${request.file}
+2. Then, add a section titled "ADDITIONAL_EDITS:" followed by a JSON array of objects:
+   [
+     {
+       "file": "path/to/file",
+       "reason": "why this needs to change",
+       "suggested_change": "code snippet or description"
+     }
+   ]
+
+If no other files need changes, still provide the ADDITIONAL_EDITS section with an empty array [].
 `;
       }
     }

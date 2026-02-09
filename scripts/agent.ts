@@ -32,9 +32,7 @@ const GITHUB_APP_INSTALLATION_ID = process.env.GITHUB_APP_INSTALLATION_ID;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
 
 interface ProcessJobData {
-  comment: ParsedReviewComment;
   config: PRConfig;
-  
   manual?: boolean;
 }
 
@@ -96,6 +94,7 @@ export class PRAutopilotAgent {
     });
 
     this.queue.registerHandler('process_pr', job => this.handleProcessJob(job));
+    this.queue.registerHandler('run_command', job => this.handleRunCommandJob(job));
     this.registerWebhookHandlers();
     this.queue.start(1500);
   }
@@ -329,6 +328,38 @@ export class PRAutopilotAgent {
       }
     });
 
+    this.webhooks.on('check_run', async (context: any) => {
+      c.handler(`check_run triggered: action=${context.payload.action}, status=${context.payload.check_run.status}, conclusion=${context.payload.check_run.conclusion}`);
+      try {
+        const repoFull = context.payload.repository?.full_name;
+        const prs = context.payload.check_run.pull_requests;
+        if (repoFull && prs && prs.length > 0 && context.payload.check_run.status === 'completed' && context.payload.check_run.conclusion === 'failure') {
+          for (const pr of prs) {
+            c.handler(`Check failed for ${repoFull}#${pr.number}, triggering analysis`);
+            // Here we could trigger a special job to analyze failures and fix them
+            // For now, just log it.
+          }
+        }
+      } catch (error: any) {
+        c.error(`Error in check_run handler: ${error.message}`);
+      }
+    });
+
+    this.webhooks.on('workflow_run', async (context: any) => {
+      c.handler(`workflow_run triggered: action=${context.payload.action}, status=${context.payload.workflow_run.status}, conclusion=${context.payload.workflow_run.conclusion}`);
+      try {
+        const repoFull = context.payload.repository?.full_name;
+        const prs = context.payload.workflow_run.pull_requests;
+        if (repoFull && prs && prs.length > 0 && context.payload.workflow_run.status === 'completed' && context.payload.workflow_run.conclusion === 'failure') {
+          for (const pr of prs) {
+            c.handler(`Workflow failed for ${repoFull}#${pr.number}`);
+          }
+        }
+      } catch (error: any) {
+        c.error(`Error in workflow_run handler: ${error.message}`);
+      }
+    });
+
     c.success(`Webhook handlers registered`);
   }
 
@@ -350,22 +381,27 @@ export class PRAutopilotAgent {
     const runnable = this.parser.filterComments(cleanedComments, config);
     c.comment(`${runnable.length}/${cleanedComments.length} comments are runnable after config filtering`);
     
-    let queuedCount = 0;
-    for (const comment of runnable) {
-      if (this.stateMachine.isCommentProcessed(repofull, pr, comment.id)) {
-        c.comment(`Comment ${comment.id} already processed, skipping`);
-        continue;
+    if (runnable.length > 0) {
+      this.stateMachine.addPendingComments(repofull, pr, runnable);
+      
+      // Check if a job for this PR is already in the queue
+      const status = this.queue.getStatus();
+      const alreadyQueued = status.jobs.some(j => j.type === 'process_pr' && j.repo === repofull && j.pr === pr);
+      
+      if (!alreadyQueued) {
+        c.comment(`Queueing batch job for ${repofull}#${pr}`);
+        this.queue.addJob('process_pr', repofull, pr, { config }, 0);
+      } else {
+        c.comment(`Batch job already queued for ${repofull}#${pr}, comments added to pending list`);
       }
-      c.comment(`Queueing job for comment ${comment.id} (${comment.type} on ${comment.file})`);
-      this.queue.addJob('process_pr', repofull, pr, { comment, config }, 0);
-      queuedCount++;
     }
-    c.comment(`Queued ${queuedCount} jobs for ${repofull}#${pr}`);
   }
 
   private async handleIssueComment(repofull: string, pr: number, body: string): Promise<void> {
-    c.comment(`Handling command in ${repofull}#${pr}: ${body.slice(0, 50)}...`);
-    if (body.trim().startsWith('/stop-autofix')) {
+    const trimmedBody = body.trim();
+    c.comment(`Handling command in ${repofull}#${pr}: ${trimmedBody.slice(0, 50)}...`);
+
+    if (trimmedBody.startsWith('/stop-autofix')) {
       c.comment(`Stop command detected, blocking PR`);
       this.stateMachine.transition(repofull, pr, 'BLOCKED', 'Manual stop command received');
       await this.octokit.rest.issues.createComment({
@@ -374,6 +410,20 @@ export class PRAutopilotAgent {
         issue_number: pr,
         body: 'Auto-fixes halted for this PR. Remove `/stop-autofix` to resume.',
       });
+    } else if (trimmedBody.startsWith('/autopilot run ')) {
+      const commandToRun = trimmedBody.replace('/autopilot run ', '').trim();
+      if (commandToRun) {
+        c.comment(`Manual command requested: ${commandToRun}`);
+        const config = await this.configLoader.loadConfig(this.splitRepo(repofull).owner, this.splitRepo(repofull).repo);
+        this.queue.addJob('run_command', repofull, pr, { command: commandToRun, config }, 10); // Higher priority
+        
+        await this.octokit.rest.issues.createComment({
+          owner: this.splitRepo(repofull).owner,
+          repo: this.splitRepo(repofull).repo,
+          issue_number: pr,
+          body: `🚀 Queued manual command: \`${commandToRun}\``,
+        });
+      }
     }
   }
 
@@ -394,123 +444,226 @@ export class PRAutopilotAgent {
     return 2;
   }
 
-  private async handleProcessJob(job: Job): Promise<JobResult> {
-    console.log(`[JOB] Processing job ${job.id} for ${job.repo}#${job.pr}`);
-    const data = job.data as ProcessJobData;
-    if (!data?.comment) {
-      console.log(`[JOB] Missing comment payload, failing job`);
-      return { success: false, error: 'Missing comment payload' };
-    }
-
-    const comment = data.comment;
+  private async handleRunCommandJob(job: Job): Promise<JobResult> {
     const { owner, repo } = this.splitRepo(job.repo);
-
+    const data = job.data;
+    
     try {
-      console.log(`[JOB] Transitioning state to FIXING for ${job.repo}#${job.pr}`);
-      this.stateMachine.transition(job.repo, job.pr, 'FIXING');
-
-      if (!comment.file) {
-        console.log(`[JOB] No file specified in comment, skipping`);
-        return { success: true };
-      }
-
-      console.log(`[JOB] Fetching PR data for ${owner}/${repo}#${job.pr}`);
+      c.job(`Running manual command for ${job.repo}#${job.pr}: ${data.command}`);
+      
       const pr = await this.octokit.rest.pulls.get({ owner, repo, pull_number: job.pr });
       const headRef = pr.data.head.ref;
-      console.log(`[JOB] PR head ref: ${headRef}`);
-
-      console.log(`[JOB] Cloning repo ${job.repo}`);
+      
       await this.gitOps.clone(job.repo);
-
-      // Determine branch strategy based on config
-      let targetBranch: string;
-      console.log(`[JOB] Branch strategy: ${data.config.autofix.branch_strategy}`);
       
-      if (data.config.autofix.branch_strategy === 'helper_pr') {
-        // Get or create a helper branch for this PR
-        const existingHelperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
-        console.log(`[JOB] Existing helper branch: ${existingHelperBranch || 'none'}`);
-        
-        targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
-        
-        // Store the helper branch name if it was just created
-        if (!existingHelperBranch) {
-          this.stateMachine.setHelperBranch(job.repo, job.pr, targetBranch);
-          console.log(`[JOB] Created new helper branch: ${targetBranch}`);
-        } else {
-          console.log(`[JOB] Reusing existing helper branch: ${targetBranch}`);
-        }
-      } else {
-        // Use the same PR branch (original behavior)
-        targetBranch = headRef;
-        console.log(`[JOB] Using PR branch directly: ${targetBranch}`);
-      }
-
-      console.log(`[JOB] Checking out branch ${targetBranch}`);
+      const helperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
+      const targetBranch = helperBranch || headRef;
+      
       await this.gitOps.checkout(job.repo, targetBranch);
-
-      const currentHeadSha = await this.gitOps.getCurrentCommit(job.repo);
-      console.log(`[JOB] Current HEAD after checkout: ${currentHeadSha}`);
-
-      const patchRequest: PatchRequest = {
-        repo: job.repo,
-        pr: job.pr,
-        commit_sha: currentHeadSha,
-        file: comment.file,
-        start_line: comment.start_line,
-        end_line: comment.end_line,
-        content: comment.content,
-        context: comment.diff_hunk,
-        diff_hunk: comment.diff_hunk,
-        suggestions: comment.suggestions,
-        proposed_fixes: comment.proposed_fixes,
-        agent_prompt: comment.agent_prompt,
-      };
-
-      const level = this.determineAutomationLevel(comment, data.config);
-      console.log(`[JOB] Determined automation level ${level} for comment ${comment.id}`);
       
-      console.log(`[JOB] Generating patch for ${comment.file}`);
-      const patchResult = await this.patchGenerator.generatePatch(patchRequest, level);
-
-      if (!patchResult.success || !patchResult.patch) {
-        console.log(`[JOB] Patch generation failed: ${patchResult.error}`);
-        return { success: false, error: patchResult.error || 'Patch generation failed' };
-      }
-
-      if (patchResult.requires_approval) {
-        console.log(`[JOB] Patch requires approval (level ${level}), commenting and marking processed`);
-        await this.octokit.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: job.pr,
-          body: `Generated a patch for comment ${comment.id} on ${comment.file} but marked for manual approval (level ${level}).`,
-        });
-        this.stateMachine.markCommentProcessed(job.repo, job.pr, comment.id);
-        return { success: true };
-      }
+      const result = await this.gitOps.runCommand(job.repo, data.command);
       
-      console.log(`[JOB] Applying patch`);
-      await this.gitOps.applyPatch(job.repo, patchResult.patch);
+      const statusIcon = result.success ? '✅' : '❌';
+      const output = result.output.trim();
+      const formattedOutput = output ? `\n\`\`\`\n${output.slice(0, 1500)}${output.length > 1500 ? '...' : ''}\n\`\`\`` : '_No output_';
       
-      console.log(`[JOB] Committing changes`);
-      const commitSha = await this.gitOps.commit(job.repo, `chore(pr-${job.pr}): fixed ${comment.file}`);
-      console.log(`[JOB] Committed as ${commitSha}`);
-      
-      console.log(`[JOB] Pushing to ${targetBranch}`);
-      await this.gitOps.push(job.repo, targetBranch);
-
-      console.log(`[JOB] Creating success comment on PR`);
       await this.octokit.rest.issues.createComment({
         owner,
         repo,
         issue_number: job.pr,
-        body: `Applied comment ${comment.id} on ${comment.file} (automation level ${level}). Re-running checks.`,
+        body: `### ${statusIcon} Command Result: \`${data.command}\`\n${formattedOutput}`,
       });
+      
+      return { success: true };
+    } catch (error: any) {
+      c.error(`Manual command job failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  }
 
-      this.stateMachine.incrementIteration(job.repo, job.pr);
-      this.stateMachine.markCommentProcessed(job.repo, job.pr, comment.id);
-      this.stateMachine.transition(job.repo, job.pr, 'PUSHED');
+  private async handleProcessJob(job: Job): Promise<JobResult> {
+    console.log(`[JOB] Processing job ${job.id} for ${job.repo}#${job.pr}`);
+    const data = job.data as ProcessJobData;
+    const { owner, repo } = this.splitRepo(job.repo);
+
+    try {
+      // 1. Get pending comments
+      const pendingComments = this.stateMachine.getAndClearPendingComments(job.repo, job.pr);
+      if (pendingComments.length === 0) {
+        console.log(`[JOB] No pending comments for ${job.repo}#${job.pr}, skipping`);
+        return { success: true };
+      }
+
+      console.log(`[JOB] Found ${pendingComments.length} pending comments for ${job.repo}#${job.pr}`);
+      this.stateMachine.transition(job.repo, job.pr, 'FIXING');
+
+      // 2. Setup repo and branch
+      console.log(`[JOB] Fetching PR data for ${owner}/${repo}#${job.pr}`);
+      const pr = await this.octokit.rest.pulls.get({ owner, repo, pull_number: job.pr });
+      const headRef = pr.data.head.ref;
+      
+      console.log(`[JOB] Cloning repo ${job.repo}`);
+      await this.gitOps.clone(job.repo);
+
+      let targetBranch: string;
+      if (data.config.autofix.branch_strategy === 'helper_pr') {
+        const existingHelperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
+        targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
+        if (!existingHelperBranch) {
+          this.stateMachine.setHelperBranch(job.repo, job.pr, targetBranch);
+        }
+      } else {
+        targetBranch = headRef;
+      }
+
+      console.log(`[JOB] Checking out branch ${targetBranch}`);
+      await this.gitOps.checkout(job.repo, targetBranch);
+      const currentHeadSha = await this.gitOps.getCurrentCommit(job.repo);
+
+      // 3. Process each comment
+      const appliedComments: ParsedReviewComment[] = [];
+      const rejectedComments: { comment: ParsedReviewComment; error: string }[] = [];
+      const needsApprovalComments: ParsedReviewComment[] = [];
+
+      for (const comment of pendingComments) {
+        if (!comment.file) continue;
+
+        const level = this.determineAutomationLevel(comment, data.config);
+        console.log(`[JOB] Generating patch for ${comment.file} (level ${level})`);
+        
+        const patchRequest: PatchRequest = {
+          repo: job.repo,
+          pr: job.pr,
+          commit_sha: currentHeadSha,
+          file: comment.file,
+          start_line: comment.start_line,
+          end_line: comment.end_line,
+          content: comment.content,
+          context: comment.diff_hunk,
+          diff_hunk: comment.diff_hunk,
+          suggestions: comment.suggestions,
+          proposed_fixes: comment.proposed_fixes,
+          agent_prompt: comment.agent_prompt,
+        };
+
+        const patchResult = await this.patchGenerator.generatePatch(patchRequest, level);
+
+        if (!patchResult.success || !patchResult.patch) {
+          console.log(`[JOB] Patch generation failed for ${comment.id}: ${patchResult.error}`);
+          rejectedComments.push({ comment, error: patchResult.error || 'Patch generation failed' });
+          continue;
+        }
+
+        if (patchResult.requires_approval) {
+          console.log(`[JOB] Patch for ${comment.id} requires approval`);
+          needsApprovalComments.push(comment);
+          
+          await this.octokit.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number: job.pr,
+            body: `Generated a patch for comment ${comment.id} on ${comment.file} but it requires manual approval (automation level ${level}).`,
+          });
+          continue;
+        }
+
+        try {
+          console.log(`[JOB] Applying patch for ${comment.id}`);
+          await this.gitOps.applyPatch(job.repo, patchResult.patch);
+          appliedComments.push(comment);
+        } catch (error: any) {
+          console.log(`[JOB] Failed to apply patch for ${comment.id}: ${error.message}`);
+          rejectedComments.push({ comment, error: `Failed to apply patch: ${error.message}` });
+        }
+      }
+
+      // 4. Run Workflows if enabled
+      let workflowFailed = false;
+      const workflowResults: { name: string; success: boolean; output: string }[] = [];
+      
+      if (appliedComments.length > 0 && data.config.workflows?.enabled) {
+        console.log(`[JOB] Running workflows for ${job.repo}#${job.pr}`);
+        for (const step of data.config.workflows.steps) {
+          console.log(`[JOB] Step: ${step.name} (${step.type})`);
+          if (step.type === 'command' || step.type === 'test' || step.type === 'lint') {
+            if (step.command) {
+              const result = await this.gitOps.runCommand(job.repo, step.command, {
+                env: step.env,
+                timeout: step.timeout_ms,
+                cwd: step.working_dir
+              });
+              
+              workflowResults.push({ name: step.name, success: result.success, output: result.output });
+              
+              if (!result.success) {
+                console.log(`[JOB] Step ${step.name} failed: ${result.output}`);
+                if (!step.allow_failure) {
+                  workflowFailed = true;
+                  
+                  await this.octokit.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: job.pr,
+                    body: `### ❌ Workflow step "${step.name}" failed\nApplied changes were rolled back due to failure:\n\`\`\`\n${result.output.slice(0, 1000)}\n\`\`\``,
+                  });
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 5. Commit and Push
+      if (appliedComments.length > 0 && !workflowFailed) {
+        console.log(`[JOB] Committing changes for ${appliedComments.length} comments`);
+        const commitMsg = `chore(pr-${job.pr}): fix multiple issues\n\nFixed comments:\n` + 
+          appliedComments.map(c => `- ${c.file}:${c.start_line} (${c.id})`).join('\n');
+          
+        const commitSha = await this.gitOps.commit(job.repo, commitMsg);
+        console.log(`[JOB] Committed as ${commitSha}`);
+        
+        await this.gitOps.push(job.repo, targetBranch);
+
+        let body = `### ✅ Successfully applied fixes for ${appliedComments.length} issues\n\n`;
+        body += `**Fixed items:**\n` + appliedComments.map(c => `- ${c.file}:${c.start_line}`).join('\n');
+        
+        if (workflowResults.length > 0) {
+          body += `\n\n**Workflow results:**\n` + workflowResults.map(r => `${r.success ? '✅' : '❌'} ${r.name}`).join('\n');
+        }
+        
+        body += `\n\nRe-running CI checks on commit \`${commitSha.slice(0, 7)}\`.`;
+
+        await this.octokit.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: job.pr,
+          body,
+        });
+
+        this.stateMachine.incrementIteration(job.repo, job.pr);
+        for (const c of appliedComments) {
+          this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
+        }
+        this.stateMachine.transition(job.repo, job.pr, 'PUSHED');
+      } else if (workflowFailed) {
+        console.log(`[JOB] Workflow failed, not committing`);
+        // We should ideally reset the git state here, but since we re-clone/re-checkout every time, 
+        // it's not strictly necessary for the next job. But for this job, we're done.
+        this.stateMachine.transition(job.repo, job.pr, 'FAILED', 'Workflow failed');
+      }
+
+      // Handle rejected or needs approval comments by marking them processed so we don't loop
+      // (or maybe don't mark them processed if we want to retry?)
+      // Actually, if it needs approval, we shouldn't mark it "processed" in the sense that it's DONE, 
+      // but we should avoid picking it up in the next AUTO-fix batch until approved.
+      // For now, let's mark them as processed to avoid loops.
+      for (const c of needsApprovalComments) {
+        this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
+      }
+      for (const { comment: c } of rejectedComments) {
+        this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
+      }
 
       console.log(`[JOB] Job ${job.id} completed successfully`);
       return { success: true };
