@@ -1,48 +1,16 @@
 import { PatchRequest, PatchResult } from './types';
-import { spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Helper function to safely execute git commands with spawn
-async function safeGitExec(command: string[], cwd: string, options: { stdio?: any, timeout?: number } = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', command, {
-      cwd,
-      stdio: options.stdio || 'pipe',
-      env: { ...process.env }
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Command timed out: git ${command.join(' ')}`));
-    }, options.timeout || 30000);
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(`Command failed with code ${code}: git ${command.join(' ')}\nStderr: ${stderr}`));
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
+function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: number } = {}): string {
+  const result = execSync(`git ${args}`, {
+    cwd,
+    stdio: opts.pipe ? 'pipe' : 'ignore',
+    timeout: opts.timeout ?? 60000,
   });
+  return result ? result.toString().trim() : '';
 }
 
 const log = {
@@ -318,7 +286,7 @@ export class PatchGenerator {
 
     // Call Zo Ask API
     log.step(`Calling LLM API...`);
-    const llmResponse = await this.callLLM(prompt, request);
+    const llmResponse = await this.callLLM(prompt, request, fileContent);
 
     if (!llmResponse.success) {
       log.error(`LLM call failed: ${llmResponse.error}`);
@@ -358,54 +326,46 @@ export class PatchGenerator {
       }
     }
 
-    if (!patch) {
-      return {
-        success: false,
-        error: 'Could not generate valid patch from LLM output',
-        requires_approval: true,
-      };
-    }
-
-    // Normalize diff headers to the target file, and reject multi-file diffs
-    const normalized = this.normalizeUnifiedDiff(patch, request.file);
-    if (normalized === null) {
-      log.warn(`LLM returned a multi-file or malformed diff; falling back to code block extraction`);
-      const codeBlock = this.extractCodeBlock(llmResponse.output);
-      if (codeBlock) {
-        const originalLines = fileContent.lines.slice(Math.max(0, effectiveStartLine - 1), Math.min(fileContent.lines.length, effectiveEndLine));
-        const normalizedCode = this.restoreBaselineIndent(codeBlock, originalLines);
-        patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalizedCode);
+    // If we have a patch, validate and potentially repair it
+    if (patch) {
+      const isValid = await this.validatePatch(request.repo, request.commit_sha, patch, request.file);
+      
+      if (!isValid) {
+        log.warn(`Initial patch validation failed, attempting repair`);
+        const repaired = this.repairIncompletePatch(patch, request.file, fileContent);
+        
+        if (repaired && repaired !== patch) {
+          const repairValid = await this.validatePatch(request.repo, request.commit_sha, repaired, request.file);
+          if (repairValid) {
+            log.success(`Repaired patch is valid`);
+            return {
+              success: true,
+              patch: repaired,
+              requires_approval: level === 3,
+            };
+          }
+        }
       } else {
         return {
-          success: false,
-          error: 'LLM returned multi-file diff or invalid format',
-          requires_approval: true,
+          success: true,
+          patch,
+          requires_approval: level === 3,
         };
       }
-    } else if (normalized) {
-      patch = normalized;
     }
 
-    log.detail(`Extracted patch:\n${patch}`);
-
-    // Validate the patch
-    log.step(`Validating patch...`);
-    const isValid = await this.validatePatch(request.repo, request.commit_sha, patch, request.file);
+    // If all else fails, try iterative Qwen mode as last resort
+    log.warn(`Standard LLM methods failed, trying iterative Qwen mode...`);
+    const iterativeResult = await this.callQwenIterative(request, fileContent, level, 3);
     
-    if (!isValid) {
-      log.error(`Patch validation failed`);
-      return {
-        success: false,
-        error: 'Generated patch does not apply cleanly',
-        requires_approval: true,
-      };
+    if (iterativeResult.success) {
+      return iterativeResult;
     }
 
-    log.success(`Patch generation successful!`);
     return {
-      success: true,
-      patch: patch,
-      requires_approval: level === 3,
+      success: false,
+      error: iterativeResult.error || 'Could not generate valid patch',
+      requires_approval: true,
     };
   }
 
@@ -471,11 +431,8 @@ export class PatchGenerator {
 
       if (!fs.existsSync(repoDir)) {
         log.step(`Cloning repo ${repo}...`);
-        await safeGitExec(
-          ['clone', '--depth=1', `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${repo}.git`, repoDir],
-          this.tempDir,
-          { stdio: 'ignore', timeout: 60000 }
-        );
+        const cloneUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${repo}.git`;
+        gitExec(`clone --depth=1 ${cloneUrl} ${repoDir}`, this.tempDir, { timeout: 120000 });
         log.step(`Clone complete`);
       } else {
         log.detail(`Using existing clone at ${repoDir}`);
@@ -485,12 +442,11 @@ export class PatchGenerator {
       if (commit_sha) {
         log.step(`Fetching commit ${commit_sha}...`);
         try {
-          await safeGitExec(['fetch', '--depth=1', 'origin', commit_sha], repoDir, { stdio: 'ignore' });
-          await safeGitExec(['checkout', commit_sha], repoDir, { stdio: 'ignore' });
+          gitExec(`fetch --depth=1 origin ${commit_sha}`, repoDir);
+          gitExec(`checkout ${commit_sha}`, repoDir);
           log.step(`Checked out ${commit_sha}`);
         } catch (e) {
           log.warn(`Could not checkout ${commit_sha}, using HEAD`);
-          await safeGitExec(['checkout', 'HEAD'], repoDir, { stdio: 'ignore' });
         }
       }
 
@@ -526,7 +482,7 @@ export class PatchGenerator {
   }
 
   /**
-   * Create unified diff from extracted code and original file context
+   * Build unified diff from extracted code and original file context
    */
   private createUnifiedDiffFromCode(
     filePath: string,
@@ -535,68 +491,63 @@ export class PatchGenerator {
     fileData: FileSnapshot,
     newCode: string
   ): string {
-    log.step(`createUnifiedDiffFromCode: ${filePath} lines ${startLine}-${endLine}`);
-
     const lines = fileData.lines;
     const newLines = newCode.split('\n');
-
-    // Context lines (standard unified diff uses 3 lines of context)
-    const contextLines = 3;
-
-    // Calculate the actual start of the hunk (including context before)
-    const hunkStartLine = Math.max(1, startLine - contextLines);
-
-    // Calculate how many context lines we actually have before
+    
+    // Get the actual lines being replaced (with proper context)
+    const contextBefore = 3;
+    const contextAfter = 3;
+    
+    const hunkStartLine = Math.max(1, startLine - contextBefore);
     const contextBeforeCount = startLine - hunkStartLine;
-
-    // Calculate context after
     const contextAfterStart = endLine;
-    const contextAfterCount = Math.min(contextLines, lines.length - contextAfterStart);
-
-    // Original lines being replaced
+    const contextAfterCount = Math.min(contextAfter, lines.length - contextAfterStart);
+    
     const originalLines = lines.slice(startLine - 1, endLine);
     
-    // Old file: context before + removed lines + context after
-    const oldCount = contextBeforeCount + (endLine - startLine + 1) + contextAfterCount;
-
-    // New file: context before + added lines + context after
+    // Calculate accurate line counts for the hunk header
+    // Old: context before + removed lines + context after
+    const oldCount = contextBeforeCount + originalLines.length + contextAfterCount;
+    // New: context before + added lines + context after  
     const newCount = contextBeforeCount + newLines.length + contextAfterCount;
-
-    log.detail(`Diff header: -${hunkStartLine},${oldCount} +${hunkStartLine},${newCount}`);
-
-    // Build the patch
+    
+    log.detail(`Creating diff: hunk starts at ${hunkStartLine}, old=${oldCount}, new=${newCount}`);
+    
+    // Build the patch with proper format
     let patch = `--- a/${filePath}\n`;
     patch += `+++ b/${filePath}\n`;
     patch += `@@ -${hunkStartLine},${oldCount} +${hunkStartLine},${newCount} @@\n`;
-
-    // Context before
+    
+    // Add context lines before (with space prefix)
     for (let i = hunkStartLine - 1; i < startLine - 1 && i < lines.length; i++) {
       patch += ' ' + lines[i] + '\n';
     }
-
-    // Removed lines (original lines being replaced)
+    
+    // Add removed lines (with - prefix)
     for (const line of originalLines) {
       patch += '-' + line + '\n';
     }
-
-    // Added lines (new code)
+    
+    // Add added lines (with + prefix)
     for (const line of newLines) {
       patch += '+' + line + '\n';
     }
-
-    // Context after
+    
+    // Add context lines after (with space prefix)
     for (let i = contextAfterStart; i < contextAfterStart + contextAfterCount && i < lines.length; i++) {
       patch += ' ' + lines[i] + '\n';
     }
-
+    
+    // Check for no-op patch
     const removedLines = patch.split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'));
     const addedLines = patch.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++'));
-    if (removedLines.length === addedLines.length && removedLines.every((l, i) => l.substring(1) === addedLines[i].substring(1))) {
-      log.warn(`No-op patch detected (- and + lines identical), skipping`);
+    
+    if (removedLines.length === addedLines.length && 
+        removedLines.every((l, i) => l.substring(1) === addedLines[i].substring(1))) {
+      log.warn(`No-op patch detected, skipping`);
       return '';
     }
-
-    log.detail(`Generated patch:\n${patch}`);
+    
     return patch;
   }
 
@@ -870,272 +821,107 @@ IMPORTANT: Follow these rules:
     }
   }
 
-  private async callQwen(prompt: string, patchRequest?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
-    // For complex scenarios where repository context would be beneficial, use the specialized runner
-    if (patchRequest && patchRequest.repo && patchRequest.commit_sha) {
-      return this.callQwenWithRepositoryContext(prompt, patchRequest);
-    }
-    
-    // For simpler scenarios, use the standard approach
-    return new Promise((resolve) => {
-      try {
-        log.step(`Calling local qwen CLI (${prompt.length} chars}`);
+  private async callQwen(prompt: string, request?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string }> {
+    const promptFile = path.join(this.tempDir, `qwen-prompt-${Date.now()}.txt`);
+    fs.writeFileSync(promptFile, prompt);
 
-        // Sanitize the prompt to prevent command injection
-        const sanitizedPrompt = prompt.replace(/["`$\\]/g, '');
-
-        const child = spawn('qwen', ['-p', sanitizedPrompt, '--max-session-turns', '2', '-o', 'text'], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          env: { ...process.env, NO_COLOR: '1' },
-          timeout: 120000,
-        });
-
-        let output = '';
-        let errorOutput = '';
-
-        child.stdout.on('data', (data) => {
-          output += data.toString();
-        });
-
-        child.stderr.on('data', (data) => {
-          errorOutput += data.toString();
-        });
-
-        const timer = setTimeout(() => {
-          child.kill();
-          resolve({ 
-            success: false, 
-            error: 'Qwen CLI timed out', 
-            retryable: true 
-          });
-        }, 120000);
-
-        child.on('close', (code) => {
-          clearTimeout(timer);
-          output = output.toString().trim();
-
-          log.detail(`Qwen returned ${output.length} chars`);
-
-          if (code !== 0) {
-            resolve({
-              success: false,
-              error: `Qwen CLI failed with code ${code}: ${errorOutput}`,
-              retryable: code === 143 // SIGTERM
-            });
-            return;
-          }
-
-          if (!output) {
-            resolve({ success: false, error: 'Qwen returned empty output', retryable: true });
-            return;
-          }
-
-          resolve({ success: true, output });
-        });
-
-        child.on('error', (error) => {
-          clearTimeout(timer);
-          resolve({ 
-            success: false, 
-            error: `Qwen CLI failed: ${error.message}`, 
-            retryable: true 
-          });
-        });
-      } catch (error: any) {
-        resolve({ 
-          success: false, 
-          error: `Qwen CLI failed: ${error.message}`, 
-          retryable: false 
-        });
-      }
-    });
-  }
-
-  /**
-   * Call Qwen with repository context for complex scenarios
-   */
-  private async callQwenWithRepositoryContext(prompt: string, patchRequest: PatchRequest): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
     try {
-      log.step(`Calling specialized Qwen with repository context for ${patchRequest.repo}`);
-      
-      // Execute the specialized runner as a child process
-      const { spawn } = await import('child_process');
-      const args = [
-        'node',
-        './qwen-specialized-runner.js',
-        patchRequest.repo,
-        patchRequest.commit_sha,
-        patchRequest.file,
-        patchRequest.start_line.toString(),
-        patchRequest.end_line.toString(),
-        patchRequest.content,
-        JSON.stringify(patchRequest.suggestions?.map(s => s.code) || [])
-      ];
-      
-      return new Promise((resolve, reject) => {
-        const child = spawn('node', [
-          './qwen-specialized-runner.js',
-          patchRequest.repo,
-          patchRequest.commit_sha,
-          patchRequest.file,
-          patchRequest.start_line.toString(),
-          patchRequest.end_line.toString(),
-          patchRequest.content,
-          JSON.stringify(patchRequest.suggestions?.map(s => s.code) || [])
-        ], {
-          cwd: process.cwd(),
+      log.detail(`Calling Qwen CLI with ${prompt.length} chars`);
+
+      // Use qwen with file input instead of piping
+      const output = execSync(
+        `qwen "$(cat ${promptFile})"`,
+        {
           stdio: 'pipe',
-          timeout: 300000, // 5 minutes timeout for complex operations
-        });
-
-        let output = '';
-        let errorOutput = '';
-
-        child.stdout.on('data', (data) => {
-          output += data.toString();
-        });
-
-        child.stderr.on('data', (data) => {
-          errorOutput += data.toString();
-        });
-
-        child.on('close', (code) => {
-          if (code === 0 && output.trim()) {
-            log.detail(`Specialized Qwen returned ${output.length} chars`);
-            resolve({ success: true, output: output.trim() });
-          } else {
-            const errorMsg = errorOutput || `Specialized Qwen failed with code ${code}`;
-            log.error(`Specialized Qwen failed: ${errorMsg}`);
-            reject({ success: false, error: errorMsg, retryable: true });
-          }
-        });
-
-        child.on('error', (error) => {
-          log.error(`Error running specialized Qwen: ${error.message}`);
-          reject({ success: false, error: error.message, retryable: true });
-        });
-      });
-    } catch (error: any) {
-      log.error(`Specialized Qwen failed: ${error.message}`);
-      // Fall back to standard Qwen call
-      return new Promise((resolve) => {
-        try {
-          log.step(`Falling back to standard qwen CLI (${prompt.length} chars}`);
-
-          // Sanitize the prompt to prevent command injection
-          const sanitizedPrompt = prompt.replace(/["`$\\]/g, '');
-
-          const child = spawn('qwen', ['-p', sanitizedPrompt, '--max-session-turns', '2', '-o', 'text'], {
-            stdio: ['pipe', 'pipe', 'pipe'],
-            env: { ...process.env, NO_COLOR: '1' },
-            timeout: 120000,
-          });
-
-          let output = '';
-          let errorOutput = '';
-
-          child.stdout.on('data', (data) => {
-            output += data.toString();
-          });
-
-          child.stderr.on('data', (data) => {
-            errorOutput += data.toString();
-          });
-
-          const timer = setTimeout(() => {
-            child.kill();
-            resolve({ success: false, error: 'Qwen CLI timed out', retryable: true });
-          }, 120000);
-
-          child.on('close', (code) => {
-            clearTimeout(timer);
-            output = output.toString().trim();
-
-            log.detail(`Qwen returned ${output.length} chars`);
-
-            if (code !== 0) {
-              resolve({
-                success: false,
-                error: `Qwen CLI failed with code ${code}: ${errorOutput}`,
-                retryable: code === 143 // SIGTERM
-              });
-              return;
-            }
-
-            if (!output) {
-              resolve({ success: false, error: 'Qwen returned empty output', retryable: true });
-              return;
-            }
-
-            resolve({ success: true, output });
-          });
-
-          child.on('error', (error) => {
-            clearTimeout(timer);
-            resolve({ success: false, error: `Qwen CLI failed: ${error.message}`, retryable: true });
-          });
-        } catch (fallbackError: any) {
-          resolve({ success: false, error: `Qwen CLI failed: ${fallbackError.message}`, retryable: false });
+          timeout: 180000,
+          maxBuffer: 4 * 1024 * 1024,
+          env: { ...process.env, NO_COLOR: '1' },
         }
-      });
+      ).toString().trim();
+
+      log.detail(`Qwen returned ${output.length} chars`);
+
+      if (!output) {
+        return { success: false, error: 'Qwen returned empty output', retryable: false };
+      }
+
+      return { success: true, output };
+    } catch (error: any) {
+      log.error(`Qwen CLI failed: ${error.message?.substring(0, 200)}`);
+      return { success: false, error: `Qwen CLI failed: ${error.message}`, retryable: false };
+    } finally {
+      if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);
     }
   }
 
   /**
-    * Call LLM with configurable priority: Check if Qwen should be used first for complex prompts
+    * Call LLM with failover: Gemini → Mistral → retries → Qwen (local CLI last resort)
+    * USE_QWEN_PRIMARY=true overrides to try Qwen first.
+    * QWEN_DISCOVERY_MODE=true enables iterative mode with project context.
     */
-  private async callLLM(prompt: string, patchRequest?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string }> {
+  private async callLLM(prompt: string, patchRequest?: PatchRequest, fileContent?: FileSnapshot): Promise<{ success: boolean; output?: string; error?: string }> {
     const geminiAvailable = !!process.env.GEMINI_API_KEY;
     const mistralAvailable = !!process.env.MISTRAL_API_KEY;
-    const qwenAvailable = true; // Local CLI is always available if properly installed
+    const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';
+    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE === 'true';
 
-    // Check if prompt is complex and might benefit from Qwen's unlimited context
-    const useQwenFirst = qwenAvailable && (
-      process.env.USE_QWEN_PRIMARY === 'true' || 
-      prompt.length > 15000 || // Large prompts might benefit from unlimited context
-      (!geminiAvailable && !mistralAvailable) // Fallback when no API keys available
-    );
-
-    if (useQwenFirst) {
-      log.detail(`Using Qwen as primary LLM due to prompt complexity (${prompt.length} chars)`);
-      const qwenResult = await this.callQwen(prompt);
-      if (qwenResult.success) return qwenResult;
-      log.llmError(`Qwen primary attempt failed`);
+    // If discovery mode is enabled and we have file content, use iterative Qwen directly
+    if (qwenDiscoveryMode && fileContent && patchRequest) {
+      log.step(`QWEN_DISCOVERY_MODE enabled, using iterative Qwen with project context`);
+      const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
+      if (result.success) {
+        return { success: true, output: result.patch };
+      }
+      log.warn(`Qwen discovery mode failed, falling through to API providers`);
     }
 
-    // Standard provider order: Gemini → Mistral → retries → Qwen fallback
-    if (!geminiAvailable && !mistralAvailable && !useQwenFirst) {
+    if (useQwenPrimary) {
+      log.detail(`USE_QWEN_PRIMARY set, trying Qwen first (${prompt.length} chars)`);
+      const qwenResult = await this.callQwen(prompt);
+      if (qwenResult.success) return qwenResult;
+      log.llmError(`Qwen primary attempt failed, falling through to API providers`);
+    }
+
+    if (!geminiAvailable && !mistralAvailable) {
       log.warn(`No API keys configured, using local qwen CLI`);
+      if (fileContent && patchRequest) {
+        const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
+        if (result.success) {
+          return { success: true, output: result.patch };
+        }
+      }
       return this.callQwen(prompt, patchRequest);
     }
 
-    // Step 1: Try Gemini first (unless Qwen was used first)
     let lastError: string | undefined;
 
-    if (geminiAvailable && !useQwenFirst) {
+    // Step 1: Try Gemini
+    if (geminiAvailable) {
+      log.step(`Trying Gemini (${prompt.length} chars)`);
       const result = await this.callGemini(prompt);
       if (result.success) return result;
       lastError = result.error;
       log.llmError(`Gemini failed: ${result.errorCode ?? 'UNKNOWN'}`);
     }
 
-    // Step 2: Failover to Mistral (unless Qwen was used first)
-    if (mistralAvailable && !useQwenFirst) {
+    // Step 2: Failover to Mistral
+    if (mistralAvailable) {
+      log.step(`Trying Mistral (${prompt.length} chars)`);
       const result = await this.callMistral(prompt);
       if (result.success) return result;
       lastError = result.error;
       log.llmError(`Mistral failed: ${result.errorCode ?? 'UNKNOWN'}`);
     }
 
-    // Step 3: Exponential backoff retries (per provider), honoring Retry-After when present
+    // Step 3: Exponential backoff retries (per provider), honoring Retry-After
     const providers: Array<{
       name: string;
       call: () => Promise<{ success: boolean; output?: string; error?: string; errorCode?: string; retryable?: boolean; retryAfterMs?: number }>;
       retryCount: number;
       nextAllowedAt: number;
     }> = [];
-    if (geminiAvailable && !useQwenFirst) providers.push({ name: 'Gemini', call: () => this.callGemini(prompt), retryCount: 0, nextAllowedAt: 0 });
-    if (mistralAvailable && !useQwenFirst) providers.push({ name: 'Mistral', call: () => this.callMistral(prompt), retryCount: 0, nextAllowedAt: 0 });
+    if (geminiAvailable) providers.push({ name: 'Gemini', call: () => this.callGemini(prompt), retryCount: 0, nextAllowedAt: 0 });
+    if (mistralAvailable) providers.push({ name: 'Mistral', call: () => this.callMistral(prompt), retryCount: 0, nextAllowedAt: 0 });
 
     for (let round = 0; round < 2; round++) {
       const ordered = [...providers].sort((a, b) => a.nextAllowedAt - b.nextAllowedAt);
@@ -1151,7 +937,7 @@ IMPORTANT: Follow these rules:
         if (result.success) return result;
 
         lastError = result.error;
-        log.llmError(`${provider.name} failed: ${result.errorCode ?? 'UNKNOWN'}`);
+        log.llmError(`${provider.name} retry failed: ${result.errorCode ?? 'UNKNOWN'}`);
 
         if (result.retryable) {
           const base = 2000;
@@ -1164,13 +950,18 @@ IMPORTANT: Follow these rules:
       }
     }
 
-    // Step 4: Last resort — local qwen CLI (if not already tried as primary)
-    if (!useQwenFirst) {
-      log.warn(`All API providers failed, trying local qwen CLI...`);
-      const qwenResult = await this.callQwen(prompt, patchRequest);
-      if (qwenResult.success) return qwenResult;
-      log.llmError(`Qwen fallback failed`);
+    // Step 4: Last resort — local qwen CLI with project context if available
+    log.warn(`All API providers failed, trying local qwen CLI...`);
+    if (fileContent && patchRequest) {
+      const iterativeResult = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
+      if (iterativeResult.success) {
+        return { success: true, output: iterativeResult.patch };
+      }
     }
+    
+    const qwenResult = await this.callQwen(prompt, patchRequest);
+    if (qwenResult.success) return qwenResult;
+    log.llmError(`Qwen fallback also failed`);
 
     return { success: false, error: lastError ?? 'All LLM attempts failed' };
   }
@@ -1181,43 +972,104 @@ IMPORTANT: Follow these rules:
   private extractPatchFromResponse(response: string): string | null {
     log.step(`extractPatchFromResponse called`);
 
-    // Look for unified diff format with proper headers (most common format)
-    const diffRegex = /(--- a\/[^\n]+\n\+\+\+ b\/[^\n]+[\s\S]*?(?=---|\n$))/;
-    const diffMatch = response.match(diffRegex);
-
-    if (diffMatch) {
-      log.step(`Found unified diff format`);
-      return diffMatch[1].trim();
+    if (!response || response.trim().length === 0) {
+      return null;
     }
 
-    // Try to extract diff from code block
-    const codeBlockMatch = response.match(/```diff\n([\s\S]*?)\n```/);
-    if (codeBlockMatch) {
-      log.step(`Found diff in code block`);
-      return codeBlockMatch[1].trim();
-    }
+    // Step 1: Look for diff content in markdown code blocks (most reliable)
+    // Try ```diff first, then any ``` block that looks like a diff
+    const diffBlockMatch = response.match(/```(?:diff)?\n([\s\S]*?)```/);
+    if (diffBlockMatch) {
+      let content = diffBlockMatch[1].trim();
+      log.step(`Found diff in markdown code block (${content.length} chars)`);
 
-    // Try to extract diff with language specification that might be missing
-    const altCodeBlockMatch = response.match(/```\s*diff?\s*\n([\s\S]*?)\n```/);
-    if (altCodeBlockMatch) {
-      log.step(`Found diff in alternate code block format`);
-      return altCodeBlockMatch[1].trim();
-    }
-
-    // Only treat generic code blocks as diffs if they include proper diff headers + hunk
-    const langCodeBlockMatch = response.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
-    if (langCodeBlockMatch) {
-      const content = langCodeBlockMatch[1].trim();
-      const hasHeader = /(^|\n)--- a\//.test(content) && /(^|\n)\+\+\+ b\//.test(content);
-      const hasHunk = /(^|\n)@@/.test(content);
-      if (hasHeader && hasHunk) {
-        log.step(`Found unified diff in generic code block`);
+      // Step 2: Completely unescape the content
+      // This must happen BEFORE any line counting or parsing
+      content = this.unescapePatchContent(content);
+      
+      // Step 3: Validate it looks like a diff
+      if (content.includes('---') && content.includes('+++') && content.includes('@@')) {
+        log.detail(`Extracted valid diff format`);
         return content;
       }
     }
 
+    // Fallback: look for raw diff pattern anywhere in response
+    const rawDiffMatch = response.match(/(---\s+a\/[^\n]+\n\+\+\+\s+b\/[^\n]+\n[\s\S]*)/);
+    if (rawDiffMatch) {
+      let content = rawDiffMatch[1].trim();
+      content = this.unescapePatchContent(content);
+      log.step(`Found raw diff pattern (${content.length} chars)`);
+      return content;
+    }
+
     log.warn(`No valid diff format found in response`);
     return null;
+  }
+
+  /**
+   * Comprehensive unescaping of patch content
+   */
+  private unescapePatchContent(content: string): string {
+    // First, handle escaped newlines that split lines
+    // Convert \\n at end of lines to actual newlines
+    content = content.replace(/\\\n/g, '\n');
+    
+    // Handle escaped backslash-newline sequences
+    content = content.replace(/\\\n/g, '\n');
+
+    // Now unescape individual characters
+    const unescaped = content
+      .replace(/\\-/g, '-')      // \- -> -
+      .replace(/\\\+/g, '+')      // \+ -> +
+      .replace(/\\n/g, '\n')     // \n -> newline (if any remain)
+      .replace(/\\t/g, '\t')     // \t -> tab
+      .replace(/\\r/g, '\r')     // \r -> carriage return
+      .replace(/\\"/g, '"')      // \" -> "
+      .replace(/\\'/g, "'")      // \' -> '
+      .replace(/\\\[/g, '[')     // \[ -> [
+      .replace(/\\\]/g, ']')     // \] -> ]
+      .replace(/\\\{/g, '{')     // \{ -> {
+      .replace(/\\\}/g, '}')     // \} -> }
+      .replace(/\\\./g, '.')     // \. -> .
+      .replace(/\\\*/g, '*')     // \* -> *
+      .replace(/\\\\/g, '\\');    // \\ -> \
+
+    // Fix common LLM errors in hunk headers
+    // Fix single-@ hunk headers (Qwen sometimes outputs @ instead of @@)
+    let fixed = unescaped.replace(/(^|\n)@ -(\d+),(\d+) \+(\d+),(\d+) @@/g, '$1@@ -$2,$3 +$4,$5 @@');
+    fixed = fixed.replace(/(^|\n)@ -(\d+) \+(\d+) @@/g, '$1@@ -$2 +$3 @@');
+    
+    // Space before @@
+    fixed = fixed.replace(/(^|\n) +@+/g, '$1@@');
+
+    // Fix empty context lines (git apply requires a space even for empty lines)
+    // Find lines that are just whitespace and ensure they have exactly one space if they are context
+    const lines = fixed.split('\n');
+    const fixedLines = lines.map((line, idx) => {
+      // If it's an empty line inside a hunk, it should probably have a space prefix
+      // We check if it's between a hunk header and the next header/end
+      if (line === '' && idx > 0) {
+        // Look back for a hunk header to see if we're in a hunk
+        for (let i = idx - 1; i >= 0; i--) {
+          if (lines[i].startsWith('@@')) return ' ';
+          if (lines[i].startsWith('---') || lines[i].startsWith('+++')) break;
+        }
+      }
+      return line;
+    });
+    fixed = fixedLines.join('\n');
+
+    // Fix broken hunk headers with regex artifacts (like $3,$4)
+    fixed = fixed.replace(/@@ -(\d+)(?:,\d+)? \+(?:\$3|\d+)(?:,\$4|,\d+)? @@/g, (match, start) => {
+      if (match.includes('$')) {
+        log.warn(`Found broken hunk header with artifacts: ${match}`);
+        return `@@ -${start} +${start} @@`;
+      }
+      return match;
+    });
+
+    return fixed;
   }
 
   private normalizeUnifiedDiff(patch: string, filePath: string): string | null {
@@ -1330,12 +1182,6 @@ IMPORTANT: Follow these rules:
       const [owner, repoName] = repo.split('/');
       const repoDir = path.join(this.tempDir, `${owner}-${repoName}`);
 
-      // Special handling for test repository - validate patch against local file
-      if (repo === 'pr-autopilot/test-repo' && filePath) {
-        log.detail(`Validating patch against local test file: ${filePath}`);
-        return this.validatePatchLocally(filePath, patch);
-      }
-
       if (!fs.existsSync(repoDir)) {
         log.error(`Repo not cloned at ${repoDir}`);
         return false;
@@ -1345,71 +1191,36 @@ IMPORTANT: Follow these rules:
       const patchFile = path.join(this.tempDir, `test-${Date.now()}.patch`);
       fs.writeFileSync(patchFile, patch);
       log.detail(`Patch written to ${patchFile}`);
-      log.detail(`Patch content:\n${patch}`);
 
       try {
-        // Checkout the commit first
+        // Try to checkout the specific commit, but don't fail if it doesn't exist
+        // Just use current HEAD instead
         if (commitSha) {
-          await safeGitExec(['checkout', commitSha], repoDir, { stdio: 'ignore' });
+          try {
+            gitExec(`rev-parse --verify ${commitSha}`, repoDir, { pipe: true });
+            gitExec(`checkout ${commitSha}`, repoDir);
+            log.detail(`Checked out commit ${commitSha}`);
+          } catch (checkoutError) {
+            log.warn(`Could not checkout ${commitSha}, using current HEAD`);
+            // Stay on current HEAD - that's fine for validation
+          }
         }
 
-        // Try to apply the patch in check mode
-        // Sanitize the patch file path to prevent command injection
-        const sanitizedPatchFile = path.resolve(this.tempDir, path.basename(patchFile));
-        log.step(`Running: git apply --check ${sanitizedPatchFile}`);
-        await safeGitExec(['apply', '--check', sanitizedPatchFile], repoDir, { 
-          stdio: 'pipe', 
-          timeout: 10000 
-        });
+        // Try to apply the patch with --check (dry-run)
+        log.step(`Running: git apply --check ${patchFile}`);
+        gitExec(`apply --check "${patchFile}"`, repoDir, { pipe: true, timeout: 10000 });
 
         log.success(`Patch validation PASSED`);
         fs.unlinkSync(patchFile);
         return true;
       } catch (applyError: any) {
         log.error(`Patch validation FAILED: ${applyError.message}`);
-
-        // Log the patch that failed
         log.detail(`Failed patch content:\n${patch}`);
-
         fs.unlinkSync(patchFile);
         return false;
       }
     } catch (error: any) {
       log.error(`Error during validation: ${error.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Validate patch against a local file (for testing purposes)
-   */
-  private validatePatchLocally(filePath: string, patch: string): boolean {
-    log.detail(`Validating patch locally for file: ${filePath}`);
-    
-    try {
-      // For testing purposes, we'll just check if the patch format is valid
-      // A more sophisticated validation would apply the patch to the file content
-      const lines = patch.split('\n');
-      let hasHeader = false;
-      let hasHunk = false;
-      
-      for (const line of lines) {
-        if (line.startsWith('--- a/')) {
-          hasHeader = true;
-        } else if (line.startsWith('@@ ')) {
-          hasHunk = true;
-        }
-      }
-      
-      if (!hasHeader || !hasHunk) {
-        log.error(`Invalid patch format: missing header or hunk`);
-        return false;
-      }
-      
-      log.success(`Local patch validation PASSED (format check)`);
-      return true;
-    } catch (error) {
-      log.error(`Local patch validation FAILED: ${error}`);
       return false;
     }
   }
@@ -1425,5 +1236,472 @@ IMPORTANT: Follow these rules:
     } catch (error) {
       log.error(`Error cleaning up temp directory: ${error}`);
     }
+  }
+
+  /**
+   * Repair an incomplete or malformed patch by recalculating hunk headers
+   */
+  private repairIncompletePatch(
+    patch: string,
+    filePath: string,
+    fileContent: FileSnapshot
+  ): string | null {
+    log.step(`repairIncompletePatch called for ${filePath}`);
+
+    if (!patch || !patch.trim()) {
+      return null;
+    }
+
+    // Note: patch is already unescaped by extractPatchFromResponse -> unescapePatchContent
+    // but we'll do a quick pass for common artifacts that might have been missed
+    let workingPatch = patch;
+
+    // Fix single-@ hunk headers and space before @@
+    workingPatch = workingPatch.replace(/(^|\n)@ -(\d+)/g, '$1@@ -$2');
+    workingPatch = workingPatch.replace(/(^|\n) +@@/g, '$1@@');
+
+    const lines = workingPatch.split('\n');
+
+    // Find hunk header with more flexible pattern
+    const hunkHeaderIndex = lines.findIndex(l => 
+      l.startsWith('@@ ') || 
+      /^@ -\d+/.test(l)  // Also match single-@ headers
+    );
+    
+    if (hunkHeaderIndex === -1) {
+      log.detail(`No hunk header found in patch`);
+      return null;
+    }
+
+    // Normalize any single-@ headers to @@
+    let hunkHeader = lines[hunkHeaderIndex];
+    if (hunkHeader.startsWith('@ ') && !hunkHeader.startsWith('@@ ')) {
+      hunkHeader = '@@' + hunkHeader.substring(1);
+      lines[hunkHeaderIndex] = hunkHeader;
+    }
+
+    const hunkMatch = hunkHeader.match(/@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
+
+    if (!hunkMatch) {
+      // Try simpler pattern without counts
+      const simpleMatch = hunkHeader.match(/@@ -(\d+) \+(\d+) @@/);
+      if (!simpleMatch) {
+        log.detail(`Could not parse hunk header: ${hunkHeader}`);
+        return null;
+      }
+      // Header without counts - assume single line
+      log.detail(`Found simplified hunk header, will add counts`);
+    }
+
+    const oldStartMatch = hunkHeader.match(/@@ -(\d+)/);
+    const newStartMatch = hunkHeader.match(/ \+(\d+)/);
+    
+    if (!oldStartMatch) {
+      log.detail(`Could not find old start line in hunk header: ${hunkHeader}`);
+      return null;
+    }
+
+    const oldStart = parseInt(oldStartMatch[1], 10);
+    const declaredOldCount = hunkMatch ? parseInt(hunkMatch[2], 10) : 1;
+    const newStart = newStartMatch ? parseInt(newStartMatch[1], 10) : oldStart;
+    const declaredNewCount = hunkMatch ? parseInt(hunkMatch[4], 10) : 1;
+
+    // Count actual lines in the hunk
+    let actualContextLines = 0;
+    let actualRemovedLines = 0;
+    let actualAddedLines = 0;
+
+    for (let i = hunkHeaderIndex + 1; i < lines.length; i++) {
+      const line = lines[i];
+      // End of hunk or start of next hunk
+      if (line.startsWith('@@') || line.startsWith('diff') || line.startsWith('index')) {
+        break;
+      }
+
+      // Empty lines in the middle of a hunk are context lines (missing their space prefix)
+      if (line === '' || line.startsWith(' ')) {
+        actualContextLines++;
+        // Ensure context lines have exactly one space prefix for git apply
+        if (line === '') {
+          lines[i] = ' ';
+        } else if (line.startsWith('  ') && !line.trim()) {
+           // It's just whitespace, normalize to single space
+           lines[i] = ' ';
+        }
+      } else if (line.startsWith('-') && !line.startsWith('---')) {
+        actualRemovedLines++;
+      } else if (line.startsWith('+') && !line.startsWith('+++')) {
+        actualAddedLines++;
+      } else {
+        // Line without any prefix - assume context line missing its space
+        log.detail(`Line ${i} missing prefix, assuming context: "${line.substring(0, 20)}..."`);
+        lines[i] = ' ' + line;
+        actualContextLines++;
+      }
+    }
+
+    const correctOldCount = actualContextLines + actualRemovedLines;
+    const correctNewCount = actualContextLines + actualAddedLines;
+
+    log.detail(`Header check: declared old=${declaredOldCount}, actual=${correctOldCount}`);
+    log.detail(`Header check: declared new=${declaredNewCount}, actual=${correctNewCount}`);
+
+    // If counts match, patch might have other issues
+    if (correctOldCount === declaredOldCount && correctNewCount === declaredNewCount) {
+      log.detail(`Hunk line counts are correct, patch may have context mismatch`);
+      
+      // Try adding trailing context lines
+      const endLine = oldStart + correctOldCount - 1;
+      const trailingContextNeeded = Math.min(3, fileContent.lines.length - endLine);
+      
+      if (trailingContextNeeded > 0) {
+        log.detail(`Adding ${trailingContextNeeded} trailing context lines`);
+        const newLines = [...lines];
+        for (let i = 0; i < trailingContextNeeded; i++) {
+          const lineIdx = endLine + i;
+          if (lineIdx < fileContent.lines.length) {
+            newLines.push(' ' + fileContent.lines[lineIdx]);
+          }
+        }
+        return newLines.join('\n');
+      }
+      
+      // Return the unescaped patch even if counts match
+      return workingPatch;
+    }
+
+    // Rebuild the patch with corrected header
+    log.step(`Rebuilding patch with corrected header`);
+    
+    const correctedHeader = `@@ -${oldStart},${correctOldCount} +${newStart},${correctNewCount} @@`;
+    
+    const newPatchLines = [
+      ...lines.slice(0, hunkHeaderIndex),
+      correctedHeader,
+      ...lines.slice(hunkHeaderIndex + 1)
+    ];
+
+    return newPatchLines.join('\n');
+  }
+
+  /**
+   * Setup project directory for Qwen with full context
+   */
+  private async getQwenProjectContext(
+    request: PatchRequest,
+    fileContent: FileSnapshot
+  ): Promise<{ projectDir: string; relatedFiles: string[] } | null> {
+    log.step(`getQwenProjectContext called for ${request.repo}`);
+
+    const [owner, repoName] = request.repo.split('/');
+    const repoDir = path.join(this.tempDir, `${owner}-${repoName}`);
+
+    if (!fs.existsSync(repoDir)) {
+      log.warn(`Repo not cloned at ${repoDir}, cannot get full project context`);
+      return null;
+    }
+
+    // Find related files based on imports, class references, etc.
+    const relatedFiles: string[] = [];
+    const fileExt = path.extname(request.file);
+
+    try {
+      // Get all files with same extension in the project
+      const findOutput = execSync(
+        `find "${repoDir}" -type f -name "*${fileExt}" ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/__pycache__/*" 2>/dev/null | head -50`,
+        { encoding: 'utf-8', timeout: 10000 }
+      ).toString().trim();
+
+      const allFiles = findOutput.split('\n').filter(f => f.length > 0);
+
+      // Prioritize files that might be related based on naming
+      const targetBase = path.basename(request.file, fileExt);
+      for (const fullPath of allFiles) {
+        const relPath = path.relative(repoDir, fullPath);
+        if (relPath === request.file) continue;
+
+        // Check for import relationships or similar naming
+        const fileBase = path.basename(relPath, fileExt);
+        if (relPath.includes(targetBase) ||
+            targetBase.includes(fileBase) ||
+            fileBase.includes(targetBase.replace(/s$/, '')) || // singular/plural
+            fileBase.includes(targetBase + '_')) {
+          relatedFiles.push(relPath);
+        }
+      }
+
+      // Limit to most relevant files
+      const limitedRelated = relatedFiles.slice(0, 10);
+      log.detail(`Found ${limitedRelated.length} related files for context`);
+
+      return { projectDir: repoDir, relatedFiles: limitedRelated };
+    } catch (error: any) {
+      log.warn(`Failed to find related files: ${error.message}`);
+      return { projectDir: repoDir, relatedFiles: [] };
+    }
+  }
+
+  /**
+   * Call Qwen CLI with full project context
+   * This allows Qwen to see the entire codebase for better fixes
+   */
+  private async callQwenWithProjectContext(
+    prompt: string,
+    request: PatchRequest,
+    fileContent: FileSnapshot,
+    mode: 'single' | 'iterative' | 'discovery' = 'single'
+  ): Promise<{ success: boolean; output?: string; error?: string; additionalEdits?: string[] }> {
+    log.step(`callQwenWithProjectContext called in ${mode} mode`);
+
+    const context = await this.getQwenProjectContext(request, fileContent);
+    let projectDir: string;
+    let relatedFiles: string[] = [];
+
+    if (!context) {
+      log.step(`No context found, performing dedicated clone for Qwen...`);
+      const [owner, repoName] = request.repo.split('/');
+      projectDir = path.join(this.tempDir, `${owner}-${repoName}`);
+      if (!fs.existsSync(projectDir)) {
+        const cloneUrl = `https://x-access-token:${process.env.GITHUB_TOKEN}@github.com/${request.repo}.git`;
+        gitExec(`clone --depth=1 ${cloneUrl} ${projectDir}`, this.tempDir, { timeout: 120000 });
+        if (request.commit_sha) {
+          try {
+            gitExec(`fetch --depth=1 origin ${request.commit_sha}`, projectDir);
+            gitExec(`checkout ${request.commit_sha}`, projectDir);
+          } catch (e) {
+            log.warn(`Could not checkout ${request.commit_sha} in Qwen clone, using default branch`);
+          }
+        }
+      }
+    } else {
+      projectDir = context.projectDir;
+      relatedFiles = context.relatedFiles;
+    }
+
+    // Build comprehensive prompt with project context
+    let enhancedPrompt = prompt;
+
+    if (mode === 'iterative' || mode === 'discovery') {
+      enhancedPrompt += `
+
+PROJECT CONTEXT:
+This file is part of a larger codebase. Below are related files that may need to be considered:
+
+`;
+
+      // Include file list/structure
+      try {
+        const fileList = execSync(`find . -maxdepth 3 -not -path '*/.*'`, { cwd: projectDir, encoding: 'utf-8' });
+        enhancedPrompt += `\nPROJECT STRUCTURE (subset):\n${fileList}\n`;
+      } catch (e) { /* ignore */ }
+
+      // Include content from related files
+      for (const relFile of relatedFiles.slice(0, 5)) {
+        try {
+          const fullPath = path.join(projectDir, relFile);
+          if (fs.existsSync(fullPath)) {
+            const content = fs.readFileSync(fullPath, 'utf-8');
+            // Include first 100 lines of related file
+            const lines = content.split('\n').slice(0, 100).join('\n');
+            enhancedPrompt += `\n--- FILE: ${relFile} ---\n${lines}\n${content.split('\n').length > 100 ? '... (truncated)' : ''}\n`;
+          }
+        } catch (e) {
+          // Skip files we can't read
+        }
+      }
+
+      if (mode === 'discovery') {
+        enhancedPrompt += `
+
+DISCOVERY MODE:
+Analyze the codebase and identify if the fix requested requires changes in multiple files. 
+If so, list ALL files that need modification with brief descriptions of what needs to change in each.
+
+RESPONSE FORMAT:
+1. First, provide the diff for the primary file as requested.
+2. Then, add a section titled "ADDITIONAL_EDITS:" followed by a JSON array of objects with:
+   - file: path to the file
+   - reason: brief explanation of what needs to change
+   - suggested_change: optional code snippet or description
+`;
+      }
+    }
+
+    // Write prompt to temp file
+    const promptFile = path.join(this.tempDir, `qwen-prompt-${Date.now()}.txt`);
+    fs.writeFileSync(promptFile, enhancedPrompt);
+
+    try {
+      log.detail(`Calling Qwen with ${enhancedPrompt.length} chars prompt in ${mode} mode`);
+
+      // Use same qwen CLI syntax as callQwen
+      const output = execSync(
+        `qwen "$(cat ${promptFile})"`,
+        {
+          cwd: projectDir,
+          stdio: 'pipe',
+          timeout: 300000,
+          maxBuffer: 8 * 1024 * 1024,
+          env: { ...process.env, NO_COLOR: '1' },
+        }
+      ).toString().trim();
+
+      log.detail(`Qwen returned ${output.length} chars`);
+
+      if (!output) {
+        return { success: false, error: 'Qwen returned empty output' };
+      }
+
+      // Parse additional edits if in discovery mode
+      let additionalEdits: string[] | undefined;
+      if (mode === 'discovery') {
+        const additionalMatch = output.match(/ADDITIONAL_EDITS:?\s*([\s\S]*?)(?:\n\n|$)/i);
+        if (additionalMatch) {
+          try {
+            const editsText = additionalMatch[1].trim();
+            // Try to parse as JSON array
+            if (editsText.startsWith('[')) {
+              const parsed = JSON.parse(editsText);
+              additionalEdits = parsed.map((e: any) => `${e.file}: ${e.reason}`);
+            } else {
+              // Treat as plain text list
+              additionalEdits = editsText.split('\n').filter((l: string) => l.trim());
+            }
+            log.detail(`Qwen suggested ${additionalEdits?.length || 0} additional edits`);
+          } catch (e) {
+            log.warn(`Could not parse additional edits: ${e}`);
+          }
+        }
+      }
+
+      return { success: true, output, additionalEdits };
+    } catch (error: any) {
+      log.error(`Qwen with project context failed: ${error.message?.substring(0, 200)}`);
+      return { success: false, error: `Qwen failed: ${error.message}` };
+    } finally {
+      if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);
+    }
+  }
+
+  /**
+   * Iterative mode: Call Qwen multiple times to refine the fix
+   */
+  private async callQwenIterative(
+    request: PatchRequest,
+    fileContent: FileSnapshot,
+    level: number,
+    maxIterations: number = 3
+  ): Promise<PatchResult> {
+    log.step(`callQwenIterative called with max ${maxIterations} iterations`);
+
+    const baseRange = this.resolveTargetRange(request, fileContent);
+    let effectiveStartLine = baseRange.start;
+    let effectiveEndLine = baseRange.end;
+
+    if (request.start_line === request.end_line) {
+      effectiveStartLine = Math.max(1, baseRange.start - 20);
+      effectiveEndLine = Math.min(fileContent.lines.length, baseRange.end + 5);
+    }
+
+    const originalLines = fileContent.lines.slice(effectiveStartLine - 1, effectiveEndLine);
+    let currentPrompt = this.buildLLMPrompt(request, fileContent, level);
+
+    // Initial discovery phase to see if more files need changes
+    log.step(`Starting Qwen discovery phase...`);
+    const discoveryResult = await this.callQwenWithProjectContext(
+      currentPrompt,
+      request,
+      fileContent,
+      'discovery'
+    );
+
+    if (discoveryResult.success && discoveryResult.additionalEdits && discoveryResult.additionalEdits.length > 0) {
+      log.step(`Qwen discovered additional edits needed:`);
+      for (const edit of discoveryResult.additionalEdits) {
+        log.detail(`  - ${edit}`);
+      }
+      // Add discovery findings to the prompt for subsequent iterations
+      currentPrompt += `\n\nADDITIONAL CONTEXT FROM PREVIOUS SCAN:\nQwen identified that the following additional changes may be needed for a complete fix:\n${discoveryResult.additionalEdits.join('\n')}\nEnsure the current patch is consistent with these findings.\n`;
+    }
+
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      log.step(`Qwen iteration ${iteration + 1}/${maxIterations}`);
+
+      // Use project context on later iterations
+      const mode = iteration === 0 ? 'single' : 'iterative';
+      const qwenResult = await this.callQwenWithProjectContext(
+        currentPrompt,
+        request,
+        fileContent,
+        mode
+      );
+
+      if (!qwenResult.success || !qwenResult.output) {
+        log.warn(`Qwen iteration ${iteration + 1} failed: ${qwenResult.error}`);
+        continue;
+      }
+
+      // Extract patch
+      let patch = this.extractPatchFromResponse(qwenResult.output);
+
+      if (!patch) {
+        const codeBlock = this.extractCodeBlock(qwenResult.output);
+        if (codeBlock) {
+          const normalized = this.restoreBaselineIndent(codeBlock, originalLines);
+          patch = this.createUnifiedDiffFromCode(request.file, effectiveStartLine, effectiveEndLine, fileContent, normalized);
+        }
+      }
+
+      if (patch) {
+        // Try to validate
+        const isValid = await this.validatePatch(request.repo, request.commit_sha, patch, request.file);
+
+        if (isValid) {
+          log.success(`Qwen iteration ${iteration + 1} produced valid patch`);
+
+          // If discovery mode found additional edits, log them
+          if (qwenResult.additionalEdits && qwenResult.additionalEdits.length > 0) {
+            log.step(`Qwen suggests additional edits may be needed in related files:`);
+            for (const edit of qwenResult.additionalEdits) {
+              log.detail(`  - ${edit}`);
+            }
+          }
+
+          return {
+            success: true,
+            patch,
+            requires_approval: level === 3,
+          };
+        } else {
+          log.warn(`Qwen iteration ${iteration + 1} patch invalid, attempting repair`);
+
+          // Try to repair incomplete patch
+          const repaired = this.repairIncompletePatch(patch, request.file, fileContent);
+          if (repaired && repaired !== patch) {
+            const repairValid = await this.validatePatch(request.repo, request.commit_sha, repaired, request.file);
+            if (repairValid) {
+              log.success(`Repaired patch is valid`);
+              return {
+                success: true,
+                patch: repaired,
+                requires_approval: level === 3,
+              };
+            }
+          }
+
+          // Update prompt for next iteration with feedback
+          currentPrompt += `\n\nPREVIOUS ATTEMPT FAILED:\nThe previous patch did not apply cleanly. Please try again, ensuring:\n1. The diff format is correct (---a/, +++ b/, @@ lines)\n2. Context lines match exactly (including whitespace)\n3. Line numbers in the @@ header are accurate\n\nPrevious output:\n${qwenResult.output.substring(0, 500)}\n`;
+        }
+      } else {
+        log.warn(`Qwen iteration ${iteration + 1} did not produce extractable patch`);
+        currentPrompt += `\n\nPREVIOUS ATTEMPT: Could not extract a valid diff. Please respond with a proper unified diff format.\n`;
+      }
+    }
+
+    return {
+      success: false,
+      error: `Qwen failed to produce valid patch after ${maxIterations} iterations`,
+      requires_approval: true,
+    };
   }
 }

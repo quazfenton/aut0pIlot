@@ -174,4 +174,18 @@ export class PRStateMachine {
     // This is a simplified cleanup - in production, you'd want to track timestamps
     // For now, we'll just keep states for active PRs
   }
+
+  /**
+   * Get helper branch for a PR (if set)
+   */
+  getHelperBranch(repo: string, pr: number): string | undefined {
+    return this.getState(repo, pr).helper_branch;
+  }
+
+  /**
+   * Set helper branch for a PR
+   */
+  setHelperBranch(repo: string, pr: number, branch: string): void {
+    this.updateState(repo, pr, { helper_branch: branch });
+  }
 }

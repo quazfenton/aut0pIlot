@@ -1,50 +1,28 @@
-import { spawn } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { promisify } from 'util';
 
-const execAsync = promisify(require('child_process').exec);
+const log = {
+  warn: (msg: string) => console.log(`\x1b[33m[GIT]\x1b[0m ${msg}`),
+  error: (msg: string) => console.log(`\x1b[31m[GIT]\x1b[0m ${msg}`),
+};
 
-// Helper function to safely execute git commands with spawn
-async function safeGitExec(command: string[], cwd: string, options: { stdio?: any, timeout?: number } = {}): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', command, {
+function redactToken(msg: string): string {
+  return msg.replace(/(https:\/\/x-access-token:)([^@]+)(@github\.com)/g, '$1***$3');
+}
+
+function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: number } = {}): string {
+  try {
+    const result = execSync(`git ${args}`, {
       cwd,
-      stdio: options.stdio || 'pipe',
-      env: { ...process.env }
+      stdio: opts.pipe ? 'pipe' : 'ignore',
+      timeout: opts.timeout ?? 60000,
     });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Command timed out: git ${command.join(' ')}`));
-    }, options.timeout || 30000);
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(`Command failed with code ${code}: git ${command.join(' ')}\nStderr: ${stderr}`));
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
+    return result ? result.toString().trim() : '';
+  } catch (error: any) {
+    throw new Error(redactToken(error.message || String(error)));
+  }
 }
 
 export class GitOps {
@@ -56,161 +34,212 @@ export class GitOps {
     this.workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-autopilot-'));
   }
 
-  /**
-   * Clone a repository
-   */
   async clone(repo: string): Promise<void> {
     const repoDir = this.getRepoDir(repo);
     const url = `https://x-access-token:${this.token}@github.com/${repo}.git`;
 
     if (fs.existsSync(repoDir)) {
-      await safeGitExec(['fetch', 'origin'], repoDir, { stdio: 'ignore' });
+      try {
+        gitExec('fetch origin', repoDir);
+      } catch (e) {
+        console.warn(`Warning: fetch failed for ${repo}, continuing with existing clone`);
+      }
       return;
     }
 
-    await safeGitExec(['clone', url, repoDir], this.workDir, { stdio: 'ignore' });
+    gitExec(`clone ${url} ${repoDir}`, this.workDir, { timeout: 120000 });
   }
 
-  /**
-   * Fetch the latest changes
-   */
   async fetch(repo: string): Promise<void> {
-    const repoDir = this.getRepoDir(repo);
-    await safeGitExec(['fetch', 'origin'], repoDir, { stdio: 'ignore' });
+    gitExec('fetch origin', this.getRepoDir(repo));
   }
 
-  /**
-   * Checkout a branch or commit
-   */
   async checkout(repo: string, ref: string): Promise<void> {
     const repoDir = this.getRepoDir(repo);
-    await safeGitExec(['checkout', ref], repoDir, { stdio: 'ignore' });
+    try {
+      gitExec(`checkout ${ref}`, repoDir);
+    } catch {
+      gitExec(`checkout -b ${ref} origin/${ref}`, repoDir);
+    }
   }
 
-  /**
-   * Create a new branch for applying fixes
-   */
   async createAutofixBranch(repo: string, prNumber: number, iteration: number): Promise<string> {
     const repoDir = this.getRepoDir(repo);
     const branchName = `autopilot/pr-${prNumber}-iter-${iteration}`;
 
     try {
-      // Check if branch exists
-      await safeGitExec(['rev-parse', `origin/${branchName}`], repoDir, { stdio: 'pipe' });
-      // Branch exists, checkout it
-      await safeGitExec(['checkout', branchName], repoDir, { stdio: 'ignore' });
-      // Pull latest
-      await safeGitExec(['pull', 'origin', branchName], repoDir, { stdio: 'ignore' });
+      gitExec(`rev-parse origin/${branchName}`, repoDir, { pipe: true });
+      gitExec(`checkout ${branchName}`, repoDir);
+      gitExec(`pull origin ${branchName}`, repoDir);
     } catch {
-      // Branch doesn't exist, create it
-      await safeGitExec(['checkout', '-b', branchName], repoDir, { stdio: 'ignore' });
+      gitExec(`checkout -b ${branchName}`, repoDir);
     }
 
     return branchName;
   }
 
-  /**
-   * Apply a patch to the working directory
-   */
+  async getOrCreateHelperBranch(repo: string, prNumber: number, baseBranch: string, helperBranch?: string): Promise<string> {
+    const repoDir = this.getRepoDir(repo);
+    const branchName = helperBranch || `autopilot/pr-${prNumber}-fixes`;
+
+    // If baseBranch looks like an autopilot branch, we need to find the real PR base
+    // This happens when previous helper branches were pushed and became the PR head
+    let effectiveBaseBranch = baseBranch;
+    if (baseBranch.startsWith('autopilot/pr-') && baseBranch.endsWith('-fixes')) {
+      // Extract the PR number from the branch name to verify
+      const match = baseBranch.match(/autopilot\/pr-(\d+)-fixes/);
+      if (match && parseInt(match[1], 10) !== prNumber) {
+        // The PR head is pointing to another PR's helper branch
+        // This is a GitHub state issue - try to find a real base branch
+        log.warn(`PR ${prNumber} head is '${baseBranch}' which belongs to another PR. Attempting to find correct base.`);
+        effectiveBaseBranch = await this.getDefaultBranch(repo);
+        log.warn(`Using detected default branch as base: ${effectiveBaseBranch}`);
+      }
+    }
+
+    const branchExistsLocally = (): boolean => {
+      try {
+        gitExec(`rev-parse --verify ${branchName}`, repoDir, { pipe: true });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const branchExistsRemotely = (): boolean => {
+      try {
+        gitExec(`rev-parse origin/${branchName}`, repoDir, { pipe: true });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    try {
+      // Fetch the effective base branch
+      gitExec(`fetch origin ${effectiveBaseBranch}`, repoDir);
+
+      if (branchExistsLocally()) {
+        // Branch exists locally, checkout and rebase
+        gitExec(`checkout ${branchName}`, repoDir);
+        try {
+          gitExec(`rebase origin/${effectiveBaseBranch}`, repoDir);
+        } catch {
+          // If rebase has conflicts, abort and recreate from current base
+          gitExec(`rebase --abort`, repoDir);
+          gitExec(`checkout ${effectiveBaseBranch}`, repoDir);
+          gitExec(`branch -D ${branchName}`, repoDir);
+          gitExec(`checkout -b ${branchName}`, repoDir);
+        }
+      } else if (branchExistsRemotely()) {
+        // Branch exists on remote, fetch and checkout
+        gitExec(`fetch origin ${branchName}`, repoDir);
+        gitExec(`checkout -b ${branchName} origin/${branchName}`, repoDir);
+        // Rebase on latest base branch
+        try {
+          gitExec(`rebase origin/${effectiveBaseBranch}`, repoDir);
+        } catch {
+          gitExec(`rebase --abort`, repoDir);
+          gitExec(`checkout ${effectiveBaseBranch}`, repoDir);
+          gitExec(`branch -D ${branchName}`, repoDir);
+          gitExec(`checkout -b ${branchName}`, repoDir);
+        }
+      } else {
+        // Create new branch from base
+        gitExec(`checkout -b ${branchName} origin/${effectiveBaseBranch}`, repoDir);
+      }
+
+      return branchName;
+    } catch (error: any) {
+      throw new Error(`Failed to setup helper branch ${branchName}: ${error.message}`);
+    }
+  }
+
   async applyPatch(repo: string, patch: string): Promise<void> {
     const repoDir = this.getRepoDir(repo);
-
-    // Write patch to temp file
     const patchFile = path.join(this.workDir, `patch-${Date.now()}.patch`);
     fs.writeFileSync(patchFile, patch);
 
     try {
-      // Sanitize the patch file path to prevent command injection
-      const sanitizedPatchFile = path.resolve(this.workDir, path.basename(patchFile));
-      await safeGitExec(['apply', sanitizedPatchFile], repoDir, { stdio: 'pipe' });
+      gitExec(`apply "${patchFile}"`, repoDir, { pipe: true });
     } finally {
-      fs.unlinkSync(patchFile);
+      if (fs.existsSync(patchFile)) fs.unlinkSync(patchFile);
     }
   }
 
-  /**
-   * Commit changes
-   */
   async commit(repo: string, message: string, author?: string): Promise<string> {
     const repoDir = this.getRepoDir(repo);
 
-    // Stage all changes
-    await safeGitExec(['add', '-A'], repoDir, { stdio: 'ignore' });
+    gitExec('add -A', repoDir);
 
-    // Configure git author
-    const authorConfig = author
-      ? ['-c', `user.name="${author}"`, '-c', `user.email="${author}@users.noreply.github.com"`]
-      : ['-c', 'user.name="PR Autopilot"', '-c', 'user.email="pr-autopilot[bot]@users.noreply.github.com"'];
+    const name = author || 'PR Autopilot';
+    const email = author
+      ? `${author}@users.noreply.github.com`
+      : 'pr-autopilot[bot]@users.noreply.github.com';
+    const safeMsg = message.replace(/"/g, '\\"');
 
-    // Sanitize the commit message to prevent command injection
-    const sanitizedMessage = message.replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$');
-    
-    // Commit - we need to use the spread operator to pass arguments separately
-    const args = [...authorConfig, 'commit', '-m', sanitizedMessage];
-    const commitOutput = await safeGitExec(args, repoDir, { stdio: 'pipe' });
+    const output = gitExec(
+      `-c user.name="${name}" -c user.email="${email}" commit -m "${safeMsg}"`,
+      repoDir,
+      { pipe: true }
+    );
 
-    // Extract commit SHA
-    const match = commitOutput.match(/\[([a-f0-9]+)\]/);
+    const match = output.match(/\[[\w/.-]+ ([a-f0-9]+)\]/);
     return match ? match[1] : '';
   }
 
-  /**
-   * Push changes to remote
-   */
   async push(repo: string, branch: string): Promise<void> {
-    const repoDir = this.getRepoDir(repo);
-    await safeGitExec(['push', '-u', 'origin', branch], repoDir, { stdio: 'ignore' });
+    gitExec(`push -u origin ${branch}`, this.getRepoDir(repo), { timeout: 120000 });
   }
 
-  /**
-   * Get the diff of changes
-   */
   async getDiff(repo: string, base: string, head?: string): Promise<string> {
-    const repoDir = this.getRepoDir(repo);
     const headRef = head || 'HEAD';
-
     try {
-      return await safeGitExec(['diff', `${base}...${headRef}`], repoDir, { stdio: 'pipe' });
+      return gitExec(`diff ${base}...${headRef}`, this.getRepoDir(repo), { pipe: true });
     } catch {
       return '';
     }
   }
 
-  /**
-   * Get the current commit SHA
-   */
   async getCurrentCommit(repo: string): Promise<string> {
-    const repoDir = this.getRepoDir(repo);
-    return (await safeGitExec(['rev-parse', 'HEAD'], repoDir, { stdio: 'pipe' })).trim();
+    return gitExec('rev-parse HEAD', this.getRepoDir(repo), { pipe: true });
   }
 
-  /**
-   * Get file content at a specific commit
-   */
-  async getFileContent(repo: string, filePath: string, commit: string): Promise<string | null> {
+  async getDefaultBranch(repo: string): Promise<string> {
     const repoDir = this.getRepoDir(repo);
     try {
-      // Sanitize inputs to prevent command injection
-      const sanitizedCommit = commit.replace(/[^a-zA-Z0-9\-_:.]/g, '');
-      const sanitizedFilePath = filePath.replace(/[^a-zA-Z0-9\-_./]/g, '');
-      
-      return await safeGitExec(['show', `${sanitizedCommit}:${sanitizedFilePath}`], repoDir, { stdio: 'pipe' });
+      const output = gitExec('remote show origin', repoDir, { pipe: true });
+      const match = output.match(/HEAD branch: (.*)/);
+      if (match) return match[1];
+    } catch {
+      // ignore
+    }
+
+    // Fallback to checking local/common branches
+    for (const b of ['main', 'master', 'develop', 'features']) {
+      try {
+        gitExec(`rev-parse origin/${b}`, repoDir, { pipe: true });
+        return b;
+      } catch {
+        // ignore
+      }
+    }
+    return 'main';
+  }
+
+  async getFileContent(repo: string, filePath: string, commit: string): Promise<string | null> {
+    try {
+      return gitExec(`show ${commit}:${filePath}`, this.getRepoDir(repo), { pipe: true });
     } catch {
       return null;
     }
   }
 
-  /**
-   * Get repository directory path
-   */
   private getRepoDir(repo: string): string {
     const [, repoName] = repo.split('/');
     return path.join(this.workDir, repoName);
   }
 
-  /**
-   * Clean up working directory
-   */
   cleanup(): void {
     try {
       if (fs.existsSync(this.workDir)) {

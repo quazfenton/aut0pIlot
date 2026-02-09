@@ -22,7 +22,7 @@ const DEFAULT_CONFIG: PRConfig = {
     max_iterations: 5,
     allowed_bots: ['coderabbitai', 'cubic-dev-ai', 'coderabbit'],
     risk_level: 'medium',
-    branch_strategy: 'update_same_pr',
+    branch_strategy: 'helper_pr',  // Default to helper branch for safety
     require_approval_for_risky: true,
   },
   exclude_paths: ['.github/', '*.md', 'package-lock.json', 'yarn.lock'],

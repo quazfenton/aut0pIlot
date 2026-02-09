@@ -74,6 +74,7 @@ export interface PRState {
   last_commit?: string;
   comments_processed: string[];
   blocked_reason?: string;
+  helper_branch?: string; // The branch where autofixes are pushed (created from PR branch)
 }
 
 export type AutomationLevel = 1 | 2 | 3;

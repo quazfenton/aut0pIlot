@@ -424,15 +424,26 @@ export class PRAutopilotAgent {
 
       // Determine branch strategy based on config
       let targetBranch: string;
+      console.log(`[JOB] Branch strategy: ${data.config.autofix.branch_strategy}`);
+      
       if (data.config.autofix.branch_strategy === 'helper_pr') {
-        // Create a new branch for fixes, based on the PR's head branch
-        const iteration = this.stateMachine.getState(job.repo, job.pr).iteration;
-        targetBranch = await this.gitOps.createAutofixBranch(job.repo, job.pr, iteration);
-        console.log(`[JOB] Created/checked out helper branch: ${targetBranch}`);
+        // Get or create a helper branch for this PR
+        const existingHelperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
+        console.log(`[JOB] Existing helper branch: ${existingHelperBranch || 'none'}`);
+        
+        targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
+        
+        // Store the helper branch name if it was just created
+        if (!existingHelperBranch) {
+          this.stateMachine.setHelperBranch(job.repo, job.pr, targetBranch);
+          console.log(`[JOB] Created new helper branch: ${targetBranch}`);
+        } else {
+          console.log(`[JOB] Reusing existing helper branch: ${targetBranch}`);
+        }
       } else {
         // Use the same PR branch (original behavior)
         targetBranch = headRef;
-        console.log(`[JOB] Using same PR branch: ${targetBranch}`);
+        console.log(`[JOB] Using PR branch directly: ${targetBranch}`);
       }
 
       console.log(`[JOB] Checking out branch ${targetBranch}`);
