@@ -25,6 +25,9 @@ function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: nu
   }
 }
 
+// Track cloned repositories to avoid redundant clones in the same session
+const clonedRepos = new Set<string>();
+
 export class GitOps {
   private workDir: string;
   private token: string;
@@ -38,16 +41,30 @@ export class GitOps {
     const repoDir = this.getRepoDir(repo);
     const url = `https://x-access-token:${this.token}@github.com/${repo}.git`;
 
+    if (clonedRepos.has(repo)) {
+      // Repo already cloned in this session, just fetch latest
+      if (fs.existsSync(repoDir)) {
+        try {
+          gitExec('fetch origin', repoDir);
+        } catch (e) {
+          console.warn(`Warning: fetch failed for ${repo}, continuing with existing clone`);
+        }
+      }
+      return;
+    }
+
     if (fs.existsSync(repoDir)) {
       try {
         gitExec('fetch origin', repoDir);
       } catch (e) {
         console.warn(`Warning: fetch failed for ${repo}, continuing with existing clone`);
       }
-      return;
+    } else {
+      gitExec(`clone ${url} ${repoDir}`, this.workDir, { timeout: 120000 });
     }
-
-    gitExec(`clone ${url} ${repoDir}`, this.workDir, { timeout: 120000 });
+    
+    // Mark this repo as cloned in this session
+    clonedRepos.add(repo);
   }
 
   async fetch(repo: string): Promise<void> {
@@ -191,7 +208,13 @@ export class GitOps {
     fs.writeFileSync(patchFile, patch);
 
     try {
-      gitExec(`apply "${patchFile}"`, repoDir, { pipe: true });
+      try {
+        gitExec(`apply "${patchFile}"`, repoDir, { pipe: true });
+      } catch (error) {
+        console.warn(`[GIT] Strict apply failed, trying fuzzy apply...`);
+        // Try fuzzy apply with ignore-space-change, ignore-whitespace, and recount
+        gitExec(`apply --ignore-space-change --ignore-whitespace --recount "${patchFile}"`, repoDir, { pipe: true });
+      }
     } finally {
       if (fs.existsSync(patchFile)) fs.unlinkSync(patchFile);
     }
@@ -349,8 +372,15 @@ export class GitOps {
       if (fs.existsSync(this.workDir)) {
         fs.rmSync(this.workDir, { recursive: true, force: true });
       }
+      // Clear the cloned repos cache on cleanup
+      clonedRepos.clear();
     } catch (error) {
       console.error('Error cleaning up GitOps work directory:', error);
     }
+  }
+  
+  // Method to clear the cloned repos cache without full cleanup
+  clearRepoCache(): void {
+    clonedRepos.clear();
   }
 }

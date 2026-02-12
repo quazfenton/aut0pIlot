@@ -16,11 +16,12 @@ export interface PRConfig {
   }>;
 }
 
+//'coderabbitai', 'cubic-dev-ai', 'coderabbit', 'sourcery-ai', 'greptileapps', 'codeant-ai', 'gitar-bot', 'graphite-app', 'qodocodereview'
 const DEFAULT_CONFIG: PRConfig = {
   autofix: {
     enabled: true,
     max_iterations: 5,
-    allowed_bots: ['coderabbitai', 'cubic-dev-ai', 'coderabbit'],
+    allowed_bots: ['coderabbitai', 'cubic-dev-ai', 'coderabbit', 'sourcery-ai', 'greptileapps', 'codeant-ai'],
     risk_level: 'medium',
     branch_strategy: 'helper_pr',  // Default to helper branch for safety
     require_approval_for_risky: true,

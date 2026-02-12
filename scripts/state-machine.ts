@@ -1,4 +1,4 @@
-import { PRState } from './types';
+import { PRState, ParsedReviewComment } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 

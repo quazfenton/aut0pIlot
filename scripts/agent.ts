@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { Webhooks } from '@octokit/webhooks';
 import { Octokit } from '@octokit/rest';
-import { Queue, Job, JobResult } from './queue';
+import { Queue, Job, JobResult, registerCleanup, runAllCleanup } from './queue';
 import { ReviewParser } from './review-parser';
 import { ConfigLoader } from './config-loader';
 import { PatchGenerator } from './patch-generator';
@@ -46,6 +46,7 @@ export class PRAutopilotAgent {
   private patchGenerator = new PatchGenerator();
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
+  private cleanupRegistered = false;
 
   constructor() {
     // Validate authentication configuration
@@ -97,6 +98,58 @@ export class PRAutopilotAgent {
     this.queue.registerHandler('run_command', job => this.handleRunCommandJob(job));
     this.registerWebhookHandlers();
     this.queue.start(1500);
+    
+    // Register cleanup for graceful shutdown
+    this.registerCleanup();
+  }
+  
+  private registerCleanup(): void {
+    if (this.cleanupRegistered) return;
+    
+    const cleanupId = 'pr-autopilot-agent';
+    
+    // Register cleanup for GitOps
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Cleaning up GitOps resources...');
+      this.gitOps.cleanup();
+    });
+    
+    // Register cleanup for PatchGenerator
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Cleaning up PatchGenerator resources...');
+      this.patchGenerator.cleanup();
+    });
+    
+    // Register cleanup for queue
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Stopping queue processor...');
+      this.queue.stop();
+    });
+    
+    // Handle process signals
+    process.on('SIGINT', () => this.gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => this.gracefulShutdown('SIGTERM'));
+    process.on('SIGUSR2', () => this.gracefulShutdown('SIGUSR2')); // nodemon restart
+    
+    this.cleanupRegistered = true;
+  }
+  
+  private async gracefulShutdown(signal: string): Promise<void> {
+    console.log(`\nReceived ${signal}, shutting down gracefully...`);
+    
+    // Stop accepting new requests
+    try {
+      await this.fastify.close();
+      console.log('Server closed');
+    } catch (err) {
+      console.error('Error closing server:', err);
+    }
+    
+    // Run all registered cleanup functions
+    runAllCleanup();
+    
+    console.log('Cleanup completed, exiting...');
+    process.exit(0);
   }
 
   async start(): Promise<void> {
@@ -113,6 +166,11 @@ export class PRAutopilotAgent {
         handlersRegistered: true
       };
     });
+    
+    // Register cleanup for graceful shutdown
+    if (!this.cleanupRegistered) {
+      this.registerCleanup();
+    }
 
     this.fastify.post('/webhook', { config: { rawBody: true } }, async (request, reply) => {
       const deliveryId = request.headers['x-github-delivery'] as string;
@@ -506,7 +564,12 @@ export class PRAutopilotAgent {
       await this.gitOps.clone(job.repo);
 
       let targetBranch: string;
-      if (data.config.autofix.branch_strategy === 'helper_pr') {
+      const isAlreadyAutopilotBranch = /^autopilot\/pr-\d+/.test(headRef);
+      if (isAlreadyAutopilotBranch) {
+        // PR head is already an autopilot branch — commit directly to it
+        console.log(`[JOB] PR head '${headRef}' is an autopilot branch, committing directly to it`);
+        targetBranch = headRef;
+      } else if (data.config.autofix.branch_strategy === 'helper_pr') {
         const existingHelperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
         targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
         if (!existingHelperBranch) {
@@ -639,12 +702,18 @@ export class PRAutopilotAgent {
         await this.gitOps.push(job.repo, targetBranch);
 
         let body = `### ✅ Successfully applied fixes for ${appliedComments.length} issues\n\n`;
-        body += `**Fixed items:**\n` + appliedComments.map(c => `- ${c.file}:${c.start_line}`).join('\n');
-        
+        body += `**Fixed items:**\n` + appliedComments.map(c => {
+          const fileLine = `${c.file}:${c.start_line}`;
+          if (c.url) {
+            return `- [${fileLine}](${c.url})`;
+          }
+          return `- ${fileLine}`;
+        }).join('\n');
+
         if (workflowResults.length > 0) {
           body += `\n\n**Workflow results:**\n` + workflowResults.map(r => `${r.success ? '✅' : '❌'} ${r.name}`).join('\n');
         }
-        
+
         body += `\n\nRe-running CI checks on commit \`${commitSha.slice(0, 7)}\`.`;
 
         await this.octokit.rest.issues.createComment({

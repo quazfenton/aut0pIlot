@@ -2,13 +2,13 @@ import Fastify from 'fastify';
 import fastifyRawBody from 'fastify-raw-body';
 import { Webhooks } from '@octokit/webhooks';
 import { Octokit } from '@octokit/rest';
-import { Queue, Job, JobResult } from './queue';
-import { ReviewParser } from './review-parser';
-import { ConfigLoader } from './config-loader';
-import { PatchGenerator } from './patch-generator';
-import { GitOps } from './git-ops';
-import { PRStateMachine } from './state-machine';
-import { ParsedReviewComment, PatchRequest, PRConfig } from './types';
+import { Queue, Job, JobResult, registerCleanup, runAllCleanup } from '../scripts/queue';
+import { ReviewParser } from '../scripts/review-parser';
+import { ConfigLoader } from '../scripts/config-loader';
+import { PatchGenerator } from '../scripts/patch-generator';
+import { GitOps } from '../scripts/git-ops';
+import { PRStateMachine } from '../scripts/state-machine';
+import { ParsedReviewComment, PatchRequest, PRConfig } from '../scripts/types';
 import * as crypto from 'crypto';
 
 const PORT = Number(process.env.AGENT_PORT ?? '3000');
@@ -37,6 +37,7 @@ export class PRAutopilotAgent {
   private patchGenerator = new PatchGenerator();
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
+  private cleanupRegistered = false;
 
   constructor(startQueueProcessor = true) {
     // Validate authentication configuration
@@ -88,9 +89,24 @@ export class PRAutopilotAgent {
     if (startQueueProcessor) {
       this.queue.start(1500);
     }
+    
+    // Register cleanup for graceful shutdown
+    this.registerCleanup();
   }
 
   async start(): Promise<void> {
+    this.fastify.get('/health', async (request, reply) => {
+      const queueStatus = this.queue.getStatus();
+      return {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        queue: {
+          length: queueStatus.queueLength,
+          processing: queueStatus.processingCount,
+        },
+      };
+    });
+
     this.fastify.post('/webhook', { config: { rawBody: true } }, async (request, reply) => {
       const deliveryId = request.headers['x-github-delivery'] as string;
       const eventName = request.headers['x-github-event'] as string;
@@ -99,16 +115,16 @@ export class PRAutopilotAgent {
       
       // Check if rawBody is available, fallback to stringifying parsed body
       const rawBody = (request.rawBody as string) || (request.body ? JSON.stringify(request.body) : '');
-      
+
       if (!rawBody) {
-        this.fastify.log.error('No rawBody or body available in request');
+        console.error('No rawBody or body available in request');
         reply.code(400).send({ error: 'No body in request' });
         return;
       }
 
       // Skip verification for webhooks from our own queue (already trusted)
       if (webhookSource === 'pr-autopilot-queue') {
-        this.fastify.log.info('Webhook from queue, skipping signature verification');
+        console.log('Webhook from queue, skipping signature verification');
         const parsedPayload = JSON.parse(rawBody);
         await this.webhooks.receive({
           id: deliveryId,
@@ -120,7 +136,7 @@ export class PRAutopilotAgent {
       }
 
       if (!WEBHOOK_SECRET) {
-        this.fastify.log.warn('No WEBHOOK_SECRET configured, skipping verification');
+        console.warn('No WEBHOOK_SECRET configured, skipping verification');
         reply.send({ ok: true });
         return;
       }
@@ -139,15 +155,64 @@ export class PRAutopilotAgent {
           name: eventName as any,
           payload: parsedPayload
         });
-        
+
         reply.send({ ok: true });
       } catch (error: any) {
-        this.fastify.log.error('Webhook verification failed', error?.message || error);
+        console.error('Webhook verification failed', error?.message || error);
         reply.code(401).send({ error: 'Webhook verification failed' });
       }
     });
 
     await this.fastify.listen({ port: PORT, host: '0.0.0.0' });
+  }
+  
+  private registerCleanup(): void {
+    if (this.cleanupRegistered) return;
+    
+    const cleanupId = 'pr-autopilot-agent-n8n';
+    
+    // Register cleanup for GitOps
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Cleaning up GitOps resources...');
+      this.gitOps.cleanup();
+    });
+    
+    // Register cleanup for PatchGenerator
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Cleaning up PatchGenerator resources...');
+      this.patchGenerator.cleanup();
+    });
+    
+    // Register cleanup for queue
+    registerCleanup(cleanupId, () => {
+      console.log('[CLEANUP] Stopping queue processor...');
+      this.queue.stop();
+    });
+    
+    // Handle process signals
+    process.on('SIGINT', () => this.gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => this.gracefulShutdown('SIGTERM'));
+    process.on('SIGUSR2', () => this.gracefulShutdown('SIGUSR2')); // nodemon restart
+    
+    this.cleanupRegistered = true;
+  }
+  
+  private async gracefulShutdown(signal: string): Promise<void> {
+    console.log(`\nReceived ${signal}, shutting down gracefully...`);
+    
+    // Stop accepting new requests
+    try {
+      await this.fastify.close();
+      console.log('Server closed');
+    } catch (err) {
+      console.error('Error closing server:', err);
+    }
+    
+    // Run all registered cleanup functions
+    runAllCleanup();
+    
+    console.log('Cleanup completed, exiting...');
+    process.exit(0);
   }
 
   async printStatus(): Promise<void> {

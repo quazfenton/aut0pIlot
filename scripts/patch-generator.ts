@@ -269,7 +269,7 @@ export class PatchGenerator {
     log.detail(`Generated patch header: @@ -${startLine},${numOldLines} +${startLine},${numNewLines} @@`);
     log.warn(`Patch missing original context lines`);
     
-    return patch + newLines.map(l => '+' + l).join('\n') + '\n';
+    return patch + newLines.map((l: string) => '+' + l).join('\n') + '\n';
   }
 
   /**
@@ -435,7 +435,7 @@ export class PatchGenerator {
         
         // git diff --no-index output has the temp file paths, we need to fix them
         const lines = diff.split('\n');
-        const fixedLines = lines.map(line => {
+        const fixedLines = lines.map((line: string) => {
           if (line.startsWith('--- ')) return `--- a/${filePath}`;
           if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
           return line;
@@ -447,7 +447,7 @@ export class PatchGenerator {
         if (error.status === 1 && error.stdout) {
           const diff = error.stdout.toString();
           const lines = diff.split('\n');
-          const fixedLines = lines.map(line => {
+          const fixedLines = lines.map((line: string) => {
             if (line.startsWith('--- ')) return `--- a/${filePath}`;
             if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
             return line;
@@ -489,7 +489,7 @@ export class PatchGenerator {
               const oldLines = request.diff_hunk
                 .split('\n')
                 .filter((line) => line.startsWith(' ') || line.startsWith('-'))
-                .map((line) => line.substring(1));
+                .map((line: string) => line.substring(1));
               if (oldLines.length > 0) {
                 mockContent = oldLines.join('\n');
               }
@@ -697,7 +697,7 @@ export class PatchGenerator {
     if (indentDiff > 0) {
       // Need to add indentation
       log.detail(`Restoring baseline indent: adding ${indentDiff} spaces to each line`);
-      return newLines.map(line => {
+      return newLines.map((line: string) => {
         if (line.trim().length > 0) {
           return ' '.repeat(indentDiff) + line;
         }
@@ -707,7 +707,7 @@ export class PatchGenerator {
       // Need to remove indentation (but be careful not to remove more than available)
       const absDiff = Math.abs(indentDiff);
       log.detail(`Adjusting baseline indent: removing ${absDiff} spaces from each line`);
-      return newLines.map(line => {
+      return newLines.map((line: string) => {
         if (line.trim().length > 0) {
           // Only remove up to the available whitespace
           const currentWs = leadingWs(line);
@@ -806,28 +806,19 @@ YOUR TASK:
     }
 
     prompt += `
-Return the fixed code in a unified diff format like this (use the exact file path shown below, no placeholders, and no extra prose):
-${'```diff'}
---- a/${file}
-+++ b/${file}
-@@ -start_line,count +start_line,count @@
--original line
-+new line
+OUTPUT FORMAT:
+Return ONLY a single fenced code block containing the complete fixed code for lines ${effectiveStartLine}-${effectiveEndLine}.
+Do NOT return a unified diff, do NOT use \`\`\`diff blocks, and do NOT include explanations or prose outside the code block.
+
+${'```'}
+// fixed code for lines ${effectiveStartLine}-${effectiveEndLine}
 ${'```'}
 
-OR if you prefer, return just the fixed code in a code block:
-${'```'}
-// your fixed code here
-${'```'}
-
-IMPORTANT: Follow these rules:
+RULES:
 1. Maintain the exact same indentation as the original code
-2. Include all surrounding context lines that are necessary for the fix
-3. If you're making a small change, include the surrounding lines to provide context
-4. Make sure the code block contains the complete fixed section from line ${effectiveStartLine} to ${effectiveEndLine}
-5. If returning diff format, ensure it follows the unified diff standard with proper @@ headers
-6. Make sure +/- signs are correctly applied to indicate removals and additions
-7. Do not include explanations or numbered lists; output only the diff or the code block
+2. Return ALL lines from ${effectiveStartLine} to ${effectiveEndLine}, with your fixes applied
+3. Do not include line numbers, diff markers (+/-), or any formatting outside the code block
+4. Output ONLY the code block — no commentary before or after
 `;
 
     if (level === 3) {
@@ -913,7 +904,7 @@ IMPORTANT: Follow these rules:
     }
   }
 
-  private async callQwen(prompt: string, request?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string }> {
+  private async callQwen(prompt: string, request?: PatchRequest): Promise<{ success: boolean; output?: string; error?: string; retryable?: boolean }> {
     const promptFile = path.join(this.tempDir, `qwen-prompt-${Date.now()}.txt`);
     fs.writeFileSync(promptFile, prompt);
 
@@ -1068,34 +1059,41 @@ IMPORTANT: Follow these rules:
       return null;
     }
 
-    // Step 1: Look for diff content in markdown code blocks (most reliable)
-    // Try ```diff first, then any ``` block that looks like a diff
-    const diffBlockMatch = response.match(/```(?:diff)?\n([\s\S]*?)```/);
+    // Only accept blocks explicitly fenced as ```diff that contain proper diff structure
+    const diffBlockRegex = /```diff\n([\s\S]*?)```/;
+    const diffBlockMatch = response.match(diffBlockRegex);
     if (diffBlockMatch) {
       let content = diffBlockMatch[1].trim();
-      log.step(`Found diff in markdown code block (${content.length} chars)`);
+      content = this.unescapePatchContent(content);
 
-      // Step 2: Completely unescape the content
-      // This must happen BEFORE any line counting or parsing
+      const hasFileHeaders = /^---\s+a\//.test(content) && /^\+\+\+\s+b\//m.test(content);
+      const hasHunkHeader = /^@@\s+-\d+/m.test(content);
+      const hasChanges = content.split('\n').some(l => l.startsWith('+') || l.startsWith('-'));
+
+      if (hasFileHeaders && hasHunkHeader && hasChanges) {
+        log.detail(`Extracted valid diff from explicit \`\`\`diff block (${content.length} chars)`);
+        return content;
+      }
+      log.warn(`\`\`\`diff block found but missing required diff structure, treating as code block`);
+    }
+
+    // Also check for raw diff pattern (not in a code block) — same strict validation
+    const rawDiffMatch = response.match(/(---\s+a\/[^\n]+\n\+\+\+\s+b\/[^\n]+\n@@[\s\S]*)/);
+    if (rawDiffMatch) {
+      let content = rawDiffMatch[1].trim();
       content = this.unescapePatchContent(content);
       
-      // Step 3: Validate it looks like a diff
-      if (content.includes('---') && content.includes('+++') && content.includes('@@')) {
-        log.detail(`Extracted valid diff format`);
+      const hasChanges = content.split('\n').some(l => 
+        (l.startsWith('+') && !l.startsWith('+++')) || 
+        (l.startsWith('-') && !l.startsWith('---'))
+      );
+      if (hasChanges) {
+        log.detail(`Extracted valid raw diff pattern (${content.length} chars)`);
         return content;
       }
     }
 
-    // Fallback: look for raw diff pattern anywhere in response
-    const rawDiffMatch = response.match(/(---\s+a\/[^\n]+\n\+\+\+\s+b\/[^\n]+\n[\s\S]*)/);
-    if (rawDiffMatch) {
-      let content = rawDiffMatch[1].trim();
-      content = this.unescapePatchContent(content);
-      log.step(`Found raw diff pattern (${content.length} chars)`);
-      return content;
-    }
-
-    log.warn(`No valid diff format found in response`);
+    log.step(`No valid diff found in response, will try code block extraction`);
     return null;
   }
 
@@ -1148,7 +1146,7 @@ IMPORTANT: Follow these rules:
     // This is now also handled in repairIncompletePatch, but doing it here helps initial validation
     const lines = fixed.split('\n');
     let inHunk = false;
-    const fixedLines = lines.map((line) => {
+    const fixedLines = lines.map((line: string) => {
       if (line.startsWith('@@')) {
         inHunk = true;
         return line;
@@ -1222,7 +1220,7 @@ IMPORTANT: Follow these rules:
       const oldLines = request.diff_hunk
         .split('\n')
         .filter((line) => line.startsWith(' ') || line.startsWith('-'))
-        .map((line) => line.substring(1));
+        .map((line: string) => line.substring(1));
 
       if (oldLines.length > 0) {
         const matchIndex = this.findSequence(fileData.lines, oldLines);
@@ -1245,6 +1243,7 @@ IMPORTANT: Follow these rules:
   private findSequence(haystack: string[], needle: string[]): number {
     if (needle.length === 0 || needle.length > haystack.length) return -1;
 
+    // Pass 1: exact match
     for (let i = 0; i <= haystack.length - needle.length; i++) {
       let matches = true;
       for (let j = 0; j < needle.length; j++) {
@@ -1254,6 +1253,23 @@ IMPORTANT: Follow these rules:
         }
       }
       if (matches) return i;
+    }
+
+    // Pass 2: whitespace-normalized match (trim trailing, collapse internal runs)
+    const normalize = (s: string) => s.trimEnd().replace(/\s+/g, ' ');
+    const normalizedNeedle = needle.map((s: string) => normalize(s));
+    for (let i = 0; i <= haystack.length - needle.length; i++) {
+      let matches = true;
+      for (let j = 0; j < needle.length; j++) {
+        if (normalize(haystack[i + j]) !== normalizedNeedle[j]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        log.detail(`findSequence: fuzzy match at line ${i + 1} (exact match failed)`);
+        return i;
+      }
     }
 
     return -1;
@@ -1307,19 +1323,31 @@ IMPORTANT: Follow these rules:
           fs.unlinkSync(patchFile);
           return true;
         } catch (error: any) {
-          // If verbose check failed, try to get more specific info
-          log.error(`Patch validation FAILED: ${error.message}`);
-          
-          // Log specific git error details if available
-          if (error.stdout) log.detail(`Git stdout: ${error.stdout}`);
-          if (error.stderr) log.detail(`Git stderr: ${error.stderr}`);
-          
-          log.detail(`Failed patch content:\n${patch}`);
-          fs.unlinkSync(patchFile);
-          return false;
+          log.warn(`Strict validation failed, trying fuzzy match...`);
+          try {
+            gitExec(`apply --check --ignore-space-change --ignore-whitespace --recount --verbose "${patchFile}"`, repoDir, { pipe: true, timeout: 10000 });
+            log.success(`Fuzzy validation PASSED`);
+            fs.unlinkSync(patchFile);
+            return true;
+          } catch (fuzzyError: any) {
+            // If verbose check failed, try to get more specific info
+            log.error(`Patch validation FAILED: ${error.message}`);
+            
+            // Log specific git error details if available
+            if (error.stdout) log.detail(`Git stdout: ${error.stdout}`);
+            if (error.stderr) log.detail(`Git stderr: ${error.stderr}`);
+            
+            log.detail(`Failed patch content:\n${patch}`);
+            fs.unlinkSync(patchFile);
+            return false;
+          }
         }
+      } catch (error: any) {
+        log.error(`Error during validation: ${error.message}`);
+        return false;
+      }
     } catch (error: any) {
-      log.error(`Error during validation: ${error.message}`);
+      log.error(`Unexpected error during validation: ${error.message}`);
       return false;
     }
   }
@@ -1338,7 +1366,7 @@ IMPORTANT: Follow these rules:
   }
 
   /**
-   * Repair an incomplete or malformed patch by recalculating hunk headers for all hunks
+   * Repair an incomplete or malformed patch by synchronizing context with actual file content
    */
   private repairIncompletePatch(
     patch: string,
@@ -1351,18 +1379,15 @@ IMPORTANT: Follow these rules:
       return null;
     }
 
-    // Note: patch is already unescaped by extractPatchFromResponse -> unescapePatchContent
-    let workingPatch = patch;
-
-    // Fix single-@ hunk headers and space before @@
-    workingPatch = workingPatch.replace(/(^|\n)@ -(\d+)/g, '$1@@ -$2');
-    workingPatch = workingPatch.replace(/(^|\n) +@@/g, '$1@@');
+    let workingPatch = patch
+      .replace(/(^|\n)@ -(\d+)/g, '$1@@ -$2')
+      .replace(/(^|\n) +@@/g, '$1@@');
 
     const lines = workingPatch.split('\n');
     const resultLines: string[] = [];
     let i = 0;
 
-    // Preserve headers before the first hunk
+    // Preserve file headers
     while (i < lines.length && !lines[i].startsWith('@@')) {
       resultLines.push(lines[i]);
       i++;
@@ -1375,10 +1400,7 @@ IMPORTANT: Follow these rules:
 
     while (i < lines.length) {
       if (lines[i].startsWith('@@')) {
-        const hunkHeaderIndex = i;
         let hunkHeader = lines[i];
-
-        // Normalize single-@ headers to @@
         if (hunkHeader.startsWith('@ ') && !hunkHeader.startsWith('@@ ')) {
           hunkHeader = '@@' + hunkHeader.substring(1);
         }
@@ -1391,61 +1413,109 @@ IMPORTANT: Follow these rules:
           continue;
         }
 
-        const oldStart = parseInt(hunkMatch[1], 10);
+        let oldStart = parseInt(hunkMatch[1], 10);
         const declaredOldCount = hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1;
-        const newStart = parseInt(hunkMatch[3], 10);
-        const declaredNewCount = hunkMatch[4] ? parseInt(hunkMatch[4], 10) : 1;
 
-        // Count actual lines in this hunk
-        let actualContextLines = 0;
-        let actualRemovedLines = 0;
-        let actualAddedLines = 0;
-        const hunkContentLines: string[] = [];
-
-        i++; // Move past header
+        // Collect hunk body lines
+        i++;
+        const hunkBody: string[] = [];
         while (i < lines.length) {
           const line = lines[i];
-          // End of hunk or start of next hunk/file
           if (line.startsWith('@@') || line.startsWith('diff') || line.startsWith('---') || line.startsWith('index')) {
             break;
           }
-
-          if (line === '' || line.startsWith(' ')) {
-            actualContextLines++;
-            // Ensure context lines have exactly one space prefix
-            hunkContentLines.push(line === '' ? ' ' : (line.startsWith('  ') && !line.trim() ? ' ' : line));
-          } else if (line.startsWith('-')) {
-            actualRemovedLines++;
-            hunkContentLines.push(line);
-          } else if (line.startsWith('+')) {
-            actualAddedLines++;
-            hunkContentLines.push(line);
-          } else {
-            // Missing prefix, assume context
-            hunkContentLines.push(' ' + line);
-            actualContextLines++;
-          }
+          hunkBody.push(line);
           i++;
         }
 
-        const correctOldCount = actualContextLines + actualRemovedLines;
-        const correctNewCount = actualContextLines + actualAddedLines;
+        // Separate the LLM's additions from its context/removals
+        const addedLines: string[] = [];
+        const llmOldLines: string[] = [];
+        for (const line of hunkBody) {
+          if (line.startsWith('+')) {
+            addedLines.push(line);
+          } else {
+            llmOldLines.push(line.startsWith('-') ? line.substring(1) : (line.startsWith(' ') ? line.substring(1) : line));
+          }
+        }
 
-        log.detail(`Hunk at line ${hunkHeaderIndex}: old=${declaredOldCount}->${correctOldCount}, new=${declaredNewCount}->${correctNewCount}`);
-        
-        const correctedHeader = `@@ -${oldStart},${correctOldCount} +${newStart},${correctNewCount} @@`;
-        resultLines.push(correctedHeader);
-        resultLines.push(...hunkContentLines);
+        // Re-anchor: verify that the old lines match the file at oldStart
+        // If not, search within ±30 lines for a better anchor
+        const fileLines = fileContent.lines;
+        let anchored = false;
+
+        if (llmOldLines.length > 0) {
+          const firstFewToCheck = llmOldLines.slice(0, Math.min(3, llmOldLines.length));
+          if (this.linesMatchAt(fileLines, oldStart - 1, firstFewToCheck)) {
+            anchored = true;
+          } else {
+            const searchRadius = 30;
+            const searchStart = Math.max(0, oldStart - 1 - searchRadius);
+            const searchEnd = Math.min(fileLines.length, oldStart - 1 + searchRadius);
+            for (let s = searchStart; s < searchEnd; s++) {
+              if (this.linesMatchAt(fileLines, s, firstFewToCheck)) {
+                log.detail(`Re-anchored hunk from line ${oldStart} to line ${s + 1}`);
+                oldStart = s + 1;
+                anchored = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // Rebuild the hunk using actual file content for context and removals
+        const newHunkLines: string[] = [];
+        let currentFileLine = oldStart;
+
+        for (const line of hunkBody) {
+          if (line.startsWith('+')) {
+            newHunkLines.push(line);
+          } else if (line.startsWith('-')) {
+            if (currentFileLine >= 1 && currentFileLine <= fileLines.length) {
+              newHunkLines.push('-' + fileLines[currentFileLine - 1]);
+              currentFileLine++;
+            } else {
+              log.detail(`Skipping overlong removal at line ${currentFileLine} (file has ${fileLines.length} lines)`);
+            }
+          } else {
+            if (currentFileLine >= 1 && currentFileLine <= fileLines.length) {
+              newHunkLines.push(' ' + fileLines[currentFileLine - 1]);
+              currentFileLine++;
+            }
+          }
+        }
+
+        // Recalculate counts
+        const finalRemoved = newHunkLines.filter(l => l.startsWith('-')).length;
+        const finalContext = newHunkLines.filter(l => l.startsWith(' ')).length;
+        const finalAdded = newHunkLines.filter(l => l.startsWith('+')).length;
+        const finalOldCount = finalContext + finalRemoved;
+        const finalNewCount = finalContext + finalAdded;
+
+        // Calculate the new-side start line
+        const newStart = oldStart;
+
+        log.detail(`Repaired hunk: -${oldStart},${finalOldCount} +${newStart},${finalNewCount}${anchored ? ' (anchored)' : ' (unanchored)'}`);
+
+        resultLines.push(`@@ -${oldStart},${finalOldCount} +${newStart},${finalNewCount} @@`);
+        resultLines.push(...newHunkLines);
       } else {
         resultLines.push(lines[i]);
         i++;
       }
     }
 
-    // Final check for trailing context if it's a single hunk and counts matched but it failed
-    // (This part is tricky with multiple hunks, so we only do it if resultLines has changed or we suspect mismatch)
-    
     return resultLines.join('\n');
+  }
+
+  private linesMatchAt(fileLines: string[], startIdx: number, toMatch: string[]): boolean {
+    if (startIdx < 0 || startIdx + toMatch.length > fileLines.length) return false;
+    for (let j = 0; j < toMatch.length; j++) {
+      if (fileLines[startIdx + j].trim() !== toMatch[j].trim()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

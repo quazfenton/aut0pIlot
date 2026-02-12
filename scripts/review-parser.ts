@@ -38,6 +38,7 @@ export class ReviewParser {
       author: comment.user.login,
       commit_sha: comment.commit_id,
       diff_hunk: comment.diff_hunk,
+      url: comment.html_url,
     };
 
     console.log(`[PARSER] Parsed inline comment: id=${result.id}, file=${result.file}, type=${result.type}, author=${result.author}, has_diff_hunk=${!!result.diff_hunk}, suggestions=${suggestions.length}, proposed_fixes=${proposed_fixes.length}, has_agent_prompt=${!!agent_prompt}`);
@@ -107,6 +108,7 @@ export class ReviewParser {
             bot_name: botName,
             commit_sha: commitSha,
             diff_hunk: comment.diff_hunk,
+            url: comment.html_url,
           });
         }
       }
@@ -141,6 +143,7 @@ export class ReviewParser {
       content: comment.body,
       author: comment.user?.login || 'unknown',
       commit_sha: '',
+      url: comment.html_url,
     };
 
     console.log(`[PARSER] Parsed issue comment: id=${result.id}, author=${result.author}`);

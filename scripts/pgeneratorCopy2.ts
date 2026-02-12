@@ -974,7 +974,7 @@ If everything is fine, return {"status":"ok"}.
 
       if (parsed.status === 'needs_followup' || additionalChanges.length > 0) {
         const details = additionalChanges
-          .map(c => `${c.file ? `${c.file}: ` : ''}${c.description || 'additional change needed'}`)
+          .map((c: any) => `${c.file ? `${c.file}: ` : ''}${c.description || 'additional change needed'}`)
           .join('; ');
         return {
           ok: false,

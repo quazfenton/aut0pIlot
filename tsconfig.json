@@ -9,7 +9,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "baseUrl": ".",
-    "typeRoots": ["./types", "./node_modules/@types"]
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "downlevelIteration": true
   },
-  "include": ["scripts/**/*.ts", "types/**/*.d.ts"]
+  "include": ["scripts/**/*.ts", "types/**/*.d.ts", "n8n-integration/**/*.ts"]
 }

@@ -155,7 +155,36 @@
         208
       ],
       "id": "b88b6750-ec91-43d5-b576-082a972af54d",
-      "name": "Write &Queue2"
+      "name": "Write &Queue2",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const payload = {\n  body: $input.first().json.payload?.body ?? $input.first().json.body ?? {},\n  headers: $input.first().json.payload?.headers ?? $input.first().json.headers ?? {},\n  rawBody: JSON.stringify($input.first().json.payload?.body ?? $input.first().json.body ?? {})\n};\n\nconst fs = require('fs');\nconst id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);\nconst tempFile = `/tmp/pr-autopilot-queue/incoming-${id}.json`;\n\nfs.mkdirSync('/tmp/pr-autopilot-queue', { recursive: true });\n\nconst headers = payload.headers;\nconst queueEntry = {\n  id,\n  timestamp: Date.now(),\n  deliveryId: headers['x-github-delivery'] || headers['X-GitHub-Delivery'] || id,\n  eventName: headers['x-github-event'] || headers['X-GitHub-Event'] || 'unknown',\n  headers,\n  payload: payload.body,\n  rawBody: payload.rawBody\n};\n\nfs.writeFileSync(tempFile, JSON.stringify(queueEntry, null, 2));\n\nreturn [{ json: { tempFile, queued: true, deliveryId: queueEntry.deliveryId, event: queueEntry.eventName } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        112
+      ],
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "Queue to Disk"
+    },
+    {
+      "parameters": {
+        "executeOnce": false,
+        "command": "cd /home/workspace/Skills/pr-autopilot && node n8n-integration/process-queued-webhooks.js"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        640,
+        112
+      ],
+      "id": "d4e5f6a7-b8c9-0123-4567-890abcdef012",
+      "name": "Process Now"
     },
     {
       "parameters": {
@@ -359,7 +388,29 @@
       "main": [
         [
           {
-            "node": "Write &Queue2",
+            "node": "Queue to Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue to Disk": {
+      "main": [
+        [
+          {
+            "node": "Process Now",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Now": {
+      "main": [
+        [
+          {
+            "node": "Respond 202",
             "type": "main",
             "index": 0
           }
@@ -388,7 +439,7 @@
         ]
       ]
     },
-    "Write &Queue2": {
+    "Write &Queue2 (disabled)": {
       "main": [
         [
           {

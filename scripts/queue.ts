@@ -1,6 +1,6 @@
 export interface Job {
   id: string;
-  type: 'process_pr' | 'apply_patch' | 'push_commit';
+  type: 'process_pr' | 'apply_patch' | 'push_commit' | 'run_command';
   repo: string;
   pr: number;
   data?: any;
@@ -14,6 +14,36 @@ export interface JobResult {
   success: boolean;
   error?: string;
   data?: any;
+}
+
+// Global cleanup registry to track resources that need cleanup
+const cleanupRegistry = new Map<string, Array<() => void>>();
+
+export function registerCleanup(id: string, cleanupFn: () => void): void {
+  if (!cleanupRegistry.has(id)) {
+    cleanupRegistry.set(id, []);
+  }
+  cleanupRegistry.get(id)!.push(cleanupFn);
+}
+
+export function runCleanup(id: string): void {
+  const cleanups = cleanupRegistry.get(id);
+  if (cleanups) {
+    for (const cleanup of cleanups) {
+      try {
+        cleanup();
+      } catch (error) {
+        console.error(`Error during cleanup for ${id}:`, error);
+      }
+    }
+    cleanupRegistry.delete(id);
+  }
+}
+
+export function runAllCleanup(): void {
+  for (const [id] of cleanupRegistry) {
+    runCleanup(id);
+  }
 }
 
 export class Queue {

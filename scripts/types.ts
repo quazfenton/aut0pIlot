@@ -63,6 +63,7 @@ export interface ParsedReviewComment {
   bot_name?: string;
   commit_sha: string;
   diff_hunk?: string;
+  url?: string;
 }
 
 export interface PatchRequest {
