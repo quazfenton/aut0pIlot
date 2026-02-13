@@ -8,6 +8,8 @@ const log = {
   error: (msg: string) => console.log(`\x1b[31m[GIT-ERROR]\x1b[0m ${msg}`),         // Red for errors
   info: (msg: string) => console.log(`\x1b[36m[GIT-INFO]\x1b[0m ${msg}`),           // Cyan for info
   success: (msg: string) => console.log(`\x1b[32m[GIT-SUCCESS]\x1b[0m ${msg}`),      // Green for success
+  checkout: (msg: string) => console.log(`\x1b[38;5;46m[GIT-CHECKOUT]\x1b[0m ${msg}`), // Bright green for checkout
+  step: (msg: string) => console.log(`\x1b[38;5;226m[GIT-STEP]\x1b[0m ${msg}`),     // Bright yellow for steps
   debug: (msg: string) => console.log(`\x1b[2m[GIT-DEBUG]\x1b[0m ${msg}`),          // Dim gray for debug
 };
 
@@ -100,6 +102,7 @@ export class GitOps {
       }
       try {
         gitExec(`checkout ${ref}`, repoDir);
+        log.checkout(`Checked out commit SHA: ${ref}`);
       } catch {
         log.warn(`Could not checkout ${ref}, staying on current HEAD`);
       }
@@ -107,8 +110,10 @@ export class GitOps {
       // For branch names: try local checkout, then track from remote
       try {
         gitExec(`checkout ${ref}`, repoDir);
+        log.checkout(`Checked out branch: ${ref}`);
       } catch {
         gitExec(`checkout -b ${ref} origin/${ref}`, repoDir);
+        log.checkout(`Created and checked out new branch: ${ref}`);
       }
     }
   }

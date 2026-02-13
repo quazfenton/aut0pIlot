@@ -23,6 +23,7 @@ const log = {
   success: (msg: string) => console.log(`\x1b[1;32m[SUCCESS]\x1b[0m ${msg}`),             // Bold green for success
   code:    (msg: string) => console.log(`\x1b[36m[CODE]\x1b[0m ${msg}`),                  // Cyan for code-related
   diff:    (msg: string) => console.log(`\x1b[38;5;245m[DIFF]\x1b[0m ${msg}`),            // Light gray for diff
+  llmCall: (msg: string) => console.log(`\x1b[38;5;201m[LLM-CALL]\x1b[0m ${msg}`),        // Purple for LLM calls
 };
 
 function fetchAndCheckout(sha: string, repoDir: string): boolean {
@@ -538,7 +539,7 @@ export class PatchGenerator {
       if (commit_sha) {
         log.step(`Fetching commit ${commit_sha}...`);
         if (fetchAndCheckout(commit_sha, repoDir)) {
-          log.step(`Checked out ${commit_sha}`);
+          log.checkout(`Checked out ${commit_sha}`);
         } else {
           log.warn(`Could not checkout ${commit_sha}, using HEAD`);
         }
@@ -905,7 +906,7 @@ RULES:
     const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
 
     try {
-      log.step(`POST Gemini (${prompt.length} chars)`);
+      log.llmCall(`POST Gemini (${prompt.length} chars)`);
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -937,7 +938,7 @@ RULES:
     if (!apiKey) return { success: false, error: 'MISTRAL_API_KEY not configured', errorCode: 'NO_KEY' };
 
     try {
-      log.step(`POST Mistral mistral-large-2512 (${prompt.length} chars)`);
+      log.llmCall(`POST Mistral mistral-large-2512 (${prompt.length} chars)`);
       const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -975,7 +976,7 @@ RULES:
     fs.writeFileSync(promptFile, prompt);
 
     try {
-      log.detail(`Calling Qwen CLI with ${prompt.length} chars`);
+      log.llmCall(`Calling Qwen CLI with ${prompt.length} chars`);
 
       // Use qwen with file input instead of piping
       const output = execSync(
@@ -1046,7 +1047,7 @@ RULES:
 
     // Step 1: Try Gemini
     if (geminiAvailable) {
-      log.step(`Trying Gemini (${prompt.length} chars)`);
+      log.llmCall(`Trying Gemini (${prompt.length} chars)`);
       const result = await this.callGemini(prompt);
       if (result.success) return result;
       lastError = result.error;
@@ -1055,7 +1056,7 @@ RULES:
 
     // Step 2: Failover to Mistral
     if (mistralAvailable) {
-      log.step(`Trying Mistral (${prompt.length} chars)`);
+      log.llmCall(`Trying Mistral (${prompt.length} chars)`);
       const result = await this.callMistral(prompt);
       if (result.success) return result;
       lastError = result.error;
@@ -1382,7 +1383,7 @@ RULES:
         // Try to checkout the specific commit, but don't fail if it doesn't exist
         if (commitSha) {
           if (fetchAndCheckout(commitSha, repoDir)) {
-            log.detail(`Checked out commit ${commitSha}`);
+            log.checkout(`Checked out commit ${commitSha}`);
           } else {
             log.warn(`Could not checkout ${commitSha}, using current HEAD`);
           }
@@ -1733,7 +1734,7 @@ RULES:
         gitExec(`clone --depth=1 ${cloneUrl} ${projectDir}`, this.tempDir, { timeout: 120000 });
         if (request.commit_sha) {
           if (fetchAndCheckout(request.commit_sha, projectDir)) {
-            log.step(`Checked out ${request.commit_sha} in Qwen clone`);
+            log.checkout(`Checked out ${request.commit_sha} in Qwen clone`);
           } else {
             log.warn(`Could not checkout ${request.commit_sha} in Qwen clone, using default branch`);
           }

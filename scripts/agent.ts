@@ -557,13 +557,18 @@ export class PRAutopilotAgent {
       }
 
       console.log(`[JOB] Found ${pendingComments.length} pending comments for ${job.repo}#${job.pr}`);
+      
+      // Check if this is a retry after a failure
+      const currentState = this.stateMachine.getState(job.repo, job.pr);
+      const isRetryAfterFailure = currentState.state === 'FAILED';
+      
       this.stateMachine.transition(job.repo, job.pr, 'FIXING');
 
       // 2. Setup repo and branch
       console.log(`[JOB] Fetching PR data for ${owner}/${repo}#${job.pr}`);
       const pr = await this.octokit.rest.pulls.get({ owner, repo, pull_number: job.pr });
       const headRef = pr.data.head.ref;
-      
+
       console.log(`[JOB] Cloning repo ${job.repo}`);
       await this.gitOps.clone(job.repo);
 
@@ -575,9 +580,19 @@ export class PRAutopilotAgent {
         targetBranch = headRef;
       } else if (data.config.autofix.branch_strategy === 'helper_pr') {
         const existingHelperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
-        targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
-        if (!existingHelperBranch) {
+        
+        // If this is a retry after failure, we should create a fresh helper branch
+        if (isRetryAfterFailure && existingHelperBranch) {
+          console.log(`[JOB] Retrying after failure, creating fresh helper branch from ${headRef}`);
+          // Delete the old helper branch reference and create a new one
+          this.stateMachine.setHelperBranch(job.repo, job.pr, undefined);
+          targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, undefined);
           this.stateMachine.setHelperBranch(job.repo, job.pr, targetBranch);
+        } else {
+          targetBranch = await this.gitOps.getOrCreateHelperBranch(job.repo, job.pr, headRef, existingHelperBranch);
+          if (!existingHelperBranch) {
+            this.stateMachine.setHelperBranch(job.repo, job.pr, targetBranch);
+          }
         }
       } else {
         targetBranch = headRef;
@@ -756,7 +771,7 @@ export class PRAutopilotAgent {
 
       // Handle rejected or needs approval comments by marking them processed so we don't loop
       // (or maybe don't mark them processed if we want to retry?)
-      // Actually, if it needs approval, we shouldn't mark it "processed" in the sense that it's DONE, 
+      // Actually, if it needs approval, we shouldn't mark it "processed" in the sense that it's DONE,
       // but we should avoid picking it up in the next AUTO-fix batch until approved.
       // For now, let's mark them as processed to avoid loops.
       for (const c of needsApprovalComments) {
@@ -771,6 +786,24 @@ export class PRAutopilotAgent {
     } catch (error: any) {
       console.error(`[JOB] Job ${job.id} failed:`, error.message);
       this.stateMachine.transition(job.repo, job.pr, 'FAILED', error.message);
+      
+      // If the job failed, we should NOT mark the comments as processed, so they can be retried
+      // Restore the applied comments to pending state so they can be retried
+      if (appliedComments.length > 0) {
+        this.stateMachine.addPendingComments(job.repo, job.pr, appliedComments);
+        for (const c of appliedComments) {
+          this.stateMachine.unmarkCommentProcessed(job.repo, job.pr, c.id);
+        }
+      }
+      
+      // Also restore rejected and needs approval comments if they were marked as processed
+      for (const c of needsApprovalComments) {
+        this.stateMachine.unmarkCommentProcessed(job.repo, job.pr, c.id);
+      }
+      for (const { comment: c } of rejectedComments) {
+        this.stateMachine.unmarkCommentProcessed(job.repo, job.pr, c.id);
+      }
+      
       return { success: false, error: error.message };
     }
   }
