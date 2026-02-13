@@ -24,6 +24,7 @@ const log = {
   code:    (msg: string) => console.log(`\x1b[36m[CODE]\x1b[0m ${msg}`),                  // Cyan for code-related
   diff:    (msg: string) => console.log(`\x1b[38;5;245m[DIFF]\x1b[0m ${msg}`),            // Light gray for diff
   llmCall: (msg: string) => console.log(`\x1b[38;5;201m[LLM-CALL]\x1b[0m ${msg}`),        // Purple for LLM calls
+  checkout: (msg: string) => console.log(`\x1b[38;5;46m[CHECKOUT]\x1b[0m ${msg}`),        // Bright green for checkout
 };
 
 function fetchAndCheckout(sha: string, repoDir: string): boolean {
@@ -539,7 +540,7 @@ export class PatchGenerator {
       if (commit_sha) {
         log.step(`Fetching commit ${commit_sha}...`);
         if (fetchAndCheckout(commit_sha, repoDir)) {
-          log.checkout(`Checked out ${commit_sha}`);
+          log.step(`Checked out ${commit_sha}`);
         } else {
           log.warn(`Could not checkout ${commit_sha}, using HEAD`);
         }
@@ -1383,7 +1384,7 @@ RULES:
         // Try to checkout the specific commit, but don't fail if it doesn't exist
         if (commitSha) {
           if (fetchAndCheckout(commitSha, repoDir)) {
-            log.checkout(`Checked out commit ${commitSha}`);
+            log.step(`Checked out commit ${commitSha}`);
           } else {
             log.warn(`Could not checkout ${commitSha}, using current HEAD`);
           }
@@ -1734,7 +1735,7 @@ RULES:
         gitExec(`clone --depth=1 ${cloneUrl} ${projectDir}`, this.tempDir, { timeout: 120000 });
         if (request.commit_sha) {
           if (fetchAndCheckout(request.commit_sha, projectDir)) {
-            log.checkout(`Checked out ${request.commit_sha} in Qwen clone`);
+            log.step(`Checked out ${request.commit_sha} in Qwen clone`);
           } else {
             log.warn(`Could not checkout ${request.commit_sha} in Qwen clone, using default branch`);
           }
