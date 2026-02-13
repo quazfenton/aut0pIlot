@@ -5,15 +5,15 @@ export class ReviewParser {
    * Parse GitHub pull_request_review_comment event
    */
   parseInlineComment(event: any): ParsedReviewComment | null {
-    console.log(`[PARSER] parseInlineComment called`);
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m parseInlineComment called`);
     
     const comment = event.comment;
     const pullRequest = event.pull_request;
 
-    console.log(`[PARSER] comment present: ${!!comment}, pull_request present: ${!!pullRequest}`);
-    
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m comment present: ${!!comment}, pull_request present: ${!!pullRequest}`);
+
     if (!comment || !pullRequest) {
-      console.log(`[PARSER] Missing required fields: comment=${!!comment}, pull_request=${!!pullRequest}`);
+      console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Missing required fields: comment=${!!comment}, pull_request=${!!pullRequest}`);
       return null;
     }
 
@@ -41,7 +41,7 @@ export class ReviewParser {
       url: comment.html_url,
     };
 
-    console.log(`[PARSER] Parsed inline comment: id=${result.id}, file=${result.file}, type=${result.type}, author=${result.author}, has_diff_hunk=${!!result.diff_hunk}, suggestions=${suggestions.length}, proposed_fixes=${proposed_fixes.length}, has_agent_prompt=${!!agent_prompt}`);
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Parsed inline comment: id=${result.id}, file=${result.file}, type=${result.type}, author=${result.author}, has_diff_hunk=${!!result.diff_hunk}, suggestions=${suggestions.length}, proposed_fixes=${proposed_fixes.length}, has_agent_prompt=${!!agent_prompt}`);
     
     return result;
   }
@@ -50,16 +50,16 @@ export class ReviewParser {
    * Parse GitHub pull_request_review event (bot or human review)
    */
   parseReview(event: any): ParsedReviewComment[] {
-    console.log(`[PARSER] parseReview called`);
-    
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m parseReview called`);
+
     const comments: ParsedReviewComment[] = [];
     const review = event.review;
     const pullRequest = event.pull_request;
 
-    console.log(`[PARSER] review present: ${!!review}, pull_request present: ${!!pullRequest}`);
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m review present: ${!!review}, pull_request present: ${!!pullRequest}`);
 
     if (!review || !pullRequest) {
-      console.log(`[PARSER] Missing required fields: review=${!!review}, pull_request=${!!pullRequest}`);
+      console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Missing required fields: review=${!!review}, pull_request=${!!pullRequest}`);
       return comments;
     }
 
@@ -70,11 +70,11 @@ export class ReviewParser {
     const isBot = review.user?.type === 'Bot';
     const botName = isBot ? author.split('[bot]')[0] : undefined;
 
-    console.log(`[PARSER] Review by ${author}, isBot=${isBot}, botName=${botName}`);
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Review by ${author}, isBot=${isBot}, botName=${botName}`);
 
     // Parse review body for inline suggestions
     if (review.body) {
-      console.log(`[PARSER] Parsing review body (${review.body.length} chars)`);
+      console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Parsing review body (${review.body.length} chars)`);
       const inlineSuggestions = this.extractInlineSuggestions(
         review.body,
         pullRequest.head?.repo?.full_name || '',
@@ -83,13 +83,13 @@ export class ReviewParser {
         commitSha,
         botName
       );
-      console.log(`[PARSER] Extracted ${inlineSuggestions.length} inline suggestions from review body`);
+      console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Extracted ${inlineSuggestions.length} inline suggestions from review body`);
       comments.push(...inlineSuggestions);
     }
 
     // Parse individual review comments
     if (review.comments && Array.isArray(review.comments)) {
-      console.log(`[PARSER] Parsing ${review.comments.length} review comments`);
+      console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Parsing ${review.comments.length} review comments`);
       for (const comment of review.comments) {
         if (comment.body) {
           const { suggestions, proposed_fixes, agent_prompt } = this.extractStructuredContent(comment.body);
@@ -114,7 +114,7 @@ export class ReviewParser {
       }
     }
 
-    console.log(`[PARSER] Total parsed from review: ${comments.length} comments`);
+    console.log(`\x1b[38;5;123m[PARSER]\x1b[0m Total parsed from review: ${comments.length} comments`);
     return comments;
   }
 

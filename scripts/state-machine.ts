@@ -130,6 +130,16 @@ export class PRStateMachine {
   }
 
   /**
+   * Unmark comment as processed (to allow reprocessing)
+   */
+  unmarkCommentProcessed(repo: string, pr: number, commentId: string): void {
+    const state = this.getState(repo, pr);
+    const processed = new Set(state.comments_processed);
+    processed.delete(commentId);
+    this.updateState(repo, pr, { comments_processed: Array.from(processed) });
+  }
+
+  /**
    * Reset state for a PR (e.g., on new commits)
    */
   resetState(repo: string, pr: number): void {

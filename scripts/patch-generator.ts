@@ -14,13 +14,15 @@ function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: nu
 }
 
 const log = {
-  header:  (msg: string) => console.log(`\n\x1b[1;36m[PATCH] ══ ${msg} ══\x1b[0m`),
-  step:    (msg: string) => console.log(`\x1b[32m[PATCH]\x1b[0m ${msg}`),
-  detail:  (msg: string) => console.log(`\x1b[2m[PATCH] ${msg}\x1b[0m`),
-  warn:    (msg: string) => console.log(`\x1b[33m[PATCH]\x1b[0m ${msg}`),
-  error:   (msg: string) => console.log(`\x1b[31m[PATCH]\x1b[0m ${msg}`),
-  llmError:(msg: string) => console.log(`\x1b[35m[PATCH]\x1b[0m ${msg}`),
-  success: (msg: string) => console.log(`\x1b[1;32m[PATCH] ✓\x1b[0m ${msg}`),
+  header:  (msg: string) => console.log(`\n\x1b[1;38;5;208m[PATCH] ══ ${msg} ══\x1b[0m`),  // Bright orange header
+  step:    (msg: string) => console.log(`\x1b[32m[STEP]\x1b[0m ${msg}`),                   // Green for steps
+  detail:  (msg: string) => console.log(`\x1b[2m[DETAIL]\x1b[0m ${msg}`),                 // Dim for details
+  warn:    (msg: string) => console.log(`\x1b[1;33m[WARN]\x1b[0m ${msg}`),                // Bold yellow for warnings
+  error:   (msg: string) => console.log(`\x1b[1;31m[ERROR]\x1b[0m ${msg}`),               // Bold red for errors
+  llmError:(msg: string) => console.log(`\x1b[1;35m[LLM-ERR]\x1b[0m ${msg}`),             // Bold magenta for LLM errors
+  success: (msg: string) => console.log(`\x1b[1;32m[SUCCESS]\x1b[0m ${msg}`),             // Bold green for success
+  code:    (msg: string) => console.log(`\x1b[36m[CODE]\x1b[0m ${msg}`),                  // Cyan for code-related
+  diff:    (msg: string) => console.log(`\x1b[38;5;245m[DIFF]\x1b[0m ${msg}`),            // Light gray for diff
 };
 
 function fetchAndCheckout(sha: string, repoDir: string): boolean {
@@ -585,61 +587,65 @@ export class PatchGenerator {
   ): string {
     const lines = fileData.lines;
     const newLines = newCode.split('\n');
-    
+
     // Get the actual lines being replaced (with proper context)
     const contextBefore = 3;
     const contextAfter = 3;
-    
-    const hunkStartLine = Math.max(1, startLine - contextBefore);
-    const contextBeforeCount = startLine - hunkStartLine;
-    const contextAfterStart = endLine;
+
+    // Ensure we have valid line numbers
+    const safeStartLine = Math.max(1, startLine);
+    const safeEndLine = Math.min(lines.length, endLine, safeStartLine + 20); // Cap to avoid huge chunks
+
+    const hunkStartLine = Math.max(1, safeStartLine - contextBefore);
+    const contextBeforeCount = safeStartLine - hunkStartLine;
+    const contextAfterStart = safeEndLine;
     const contextAfterCount = Math.min(contextAfter, lines.length - contextAfterStart);
-    
-    const originalLines = lines.slice(startLine - 1, endLine);
-    
+
+    const originalLines = lines.slice(safeStartLine - 1, safeEndLine);
+
     // Calculate accurate line counts for the hunk header
     // Old: context before + removed lines + context after
     const oldCount = contextBeforeCount + originalLines.length + contextAfterCount;
-    // New: context before + added lines + context after  
+    // New: context before + added lines + context after
     const newCount = contextBeforeCount + newLines.length + contextAfterCount;
-    
+
     log.detail(`Creating diff: hunk starts at ${hunkStartLine}, old=${oldCount}, new=${newCount}`);
-    
+
     // Build the patch with proper format
     let patch = `--- a/${filePath}\n`;
     patch += `+++ b/${filePath}\n`;
     patch += `@@ -${hunkStartLine},${oldCount} +${hunkStartLine},${newCount} @@\n`;
-    
+
     // Add context lines before (with space prefix)
-    for (let i = hunkStartLine - 1; i < startLine - 1 && i < lines.length; i++) {
+    for (let i = hunkStartLine - 1; i < safeStartLine - 1 && i < lines.length; i++) {
       patch += ' ' + lines[i] + '\n';
     }
-    
+
     // Add removed lines (with - prefix)
     for (const line of originalLines) {
       patch += '-' + line + '\n';
     }
-    
+
     // Add added lines (with + prefix)
     for (const line of newLines) {
       patch += '+' + line + '\n';
     }
-    
+
     // Add context lines after (with space prefix)
     for (let i = contextAfterStart; i < contextAfterStart + contextAfterCount && i < lines.length; i++) {
       patch += ' ' + lines[i] + '\n';
     }
-    
+
     // Check for no-op patch
     const removedLines = patch.split('\n').filter(l => l.startsWith('-') && !l.startsWith('---'));
     const addedLines = patch.split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++'));
-    
-    if (removedLines.length === addedLines.length && 
+
+    if (removedLines.length === addedLines.length &&
         removedLines.every((l, i) => l.substring(1) === addedLines[i].substring(1))) {
       log.warn(`No-op patch detected, skipping`);
       return '';
     }
-    
+
     return patch;
   }
 
@@ -826,6 +832,66 @@ RULES:
     }
 
     return prompt;
+  }
+
+  /**
+   * Enhanced code block extraction with better detection
+   */
+  private extractCodeBlock(response: string): string | null {
+    if (!response) return null;
+    
+    // Try various code block formats with increasing specificity
+    
+    // Format 1: Standard markdown code block with language
+    const langMatch = response.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
+    if (langMatch && langMatch[1].trim()) {
+      const code = langMatch[1].replace(/\r\n/g, '\n').trimEnd();
+      log.detail(`Extracted language-specific code block (${code.length} chars)`);
+      return code;
+    }
+
+    // Format 2: Language-specific code block that might not end with newline
+    const langMatch2 = response.match(/```(?:\w+)?\n([\s\S]*?)```/);
+    if (langMatch2 && langMatch2[1].trim()) {
+      const code = langMatch2[1].replace(/\r\n/g, '\n').trimEnd();
+      log.detail(`Extracted language-specific code block (no trailing newline) (${code.length} chars)`);
+      return code;
+    }
+
+    // Format 3: Plain code block
+    const plainMatch = response.match(/```([\s\S]*?)```/);
+    if (plainMatch && plainMatch[1].trim()) {
+      const code = plainMatch[1].replace(/\r\n/g, '\n').trimEnd();
+      log.detail(`Extracted plain code block (${code.length} chars)`);
+      return code;
+    }
+
+    // Format 4: Look for indented code blocks or text between specific markers
+    // This is a fallback for cases where the LLM doesn't use proper markdown
+    const lines = response.split('\n');
+    const codeLines: string[] = [];
+    let inCodeSection = false;
+    
+    for (const line of lines) {
+      if (line.trim().startsWith('```')) {
+        inCodeSection = !inCodeSection;
+        continue;
+      }
+      
+      if (inCodeSection) {
+        codeLines.push(line);
+      }
+    }
+    
+    if (codeLines.length > 0) {
+      const code = codeLines.join('\n').replace(/\r\n/g, '\n').trimEnd();
+      if (code) {
+        log.detail(`Extracted indented code block (${code.length} chars)`);
+        return code;
+      }
+    }
+
+    return null;
   }
 
   private sleep(ms: number): Promise<void> {
@@ -1051,6 +1117,7 @@ RULES:
 
   /**
    * Extract patch from LLM response
+   * Only accepts blocks explicitly fenced as ```diff that contain valid --- a/, +++ b/, @@ headers, and actual change lines
    */
   private extractPatchFromResponse(response: string): string | null {
     log.step(`extractPatchFromResponse called`);
@@ -1068,7 +1135,10 @@ RULES:
 
       const hasFileHeaders = /^---\s+a\//.test(content) && /^\+\+\+\s+b\//m.test(content);
       const hasHunkHeader = /^@@\s+-\d+/m.test(content);
-      const hasChanges = content.split('\n').some(l => l.startsWith('+') || l.startsWith('-'));
+      const hasChanges = content.split('\n').some(l => 
+        (l.startsWith('+') && !l.startsWith('+++')) || 
+        (l.startsWith('-') && !l.startsWith('---'))
+      );
 
       if (hasFileHeaders && hasHunkHeader && hasChanges) {
         log.detail(`Extracted valid diff from explicit \`\`\`diff block (${content.length} chars)`);
@@ -1078,16 +1148,19 @@ RULES:
     }
 
     // Also check for raw diff pattern (not in a code block) — same strict validation
-    const rawDiffMatch = response.match(/(---\s+a\/[^\n]+\n\+\+\+\s+b\/[^\n]+\n@@[\s\S]*)/);
+    const rawDiffMatch = response.match(/(---\s+a\/[^\n]+\n\+\+\+\s+b\/[^\n]+\n@@[\s\S]*?)(?=\n\w|$)/);
     if (rawDiffMatch) {
       let content = rawDiffMatch[1].trim();
       content = this.unescapePatchContent(content);
-      
-      const hasChanges = content.split('\n').some(l => 
-        (l.startsWith('+') && !l.startsWith('+++')) || 
+
+      const hasFileHeaders = /^---\s+a\//.test(content) && /^\+\+\+\s+b\//m.test(content);
+      const hasHunkHeader = /^@@\s+-\d+/m.test(content);
+      const hasChanges = content.split('\n').some(l =>
+        (l.startsWith('+') && !l.startsWith('+++')) ||
         (l.startsWith('-') && !l.startsWith('---'))
       );
-      if (hasChanges) {
+      
+      if (hasFileHeaders && hasHunkHeader && hasChanges) {
         log.detail(`Extracted valid raw diff pattern (${content.length} chars)`);
         return content;
       }
@@ -1367,6 +1440,7 @@ RULES:
 
   /**
    * Repair an incomplete or malformed patch by synchronizing context with actual file content
+   * Fixes common issues: overlong removals, extra spaces/empty lines, misaligned hunks, and drifted files
    */
   private repairIncompletePatch(
     patch: string,
@@ -1440,64 +1514,106 @@ RULES:
         }
 
         // Re-anchor: verify that the old lines match the file at oldStart
-        // If not, search within ±30 lines for a better anchor
+        // If not, search within ±30 lines for a better anchor using fuzzy matching
         const fileLines = fileContent.lines;
         let anchored = false;
+        let actualStart = oldStart;
 
         if (llmOldLines.length > 0) {
-          const firstFewToCheck = llmOldLines.slice(0, Math.min(3, llmOldLines.length));
-          if (this.linesMatchAt(fileLines, oldStart - 1, firstFewToCheck)) {
+          // First, try exact match at the specified position
+          if (this.linesMatchAt(fileLines, oldStart - 1, llmOldLines)) {
             anchored = true;
+            actualStart = oldStart;
           } else {
+            // If exact match fails, search for the best match nearby
             const searchRadius = 30;
             const searchStart = Math.max(0, oldStart - 1 - searchRadius);
             const searchEnd = Math.min(fileLines.length, oldStart - 1 + searchRadius);
+            
+            let bestMatch = -1;
+            let bestScore = -1;
+            
             for (let s = searchStart; s < searchEnd; s++) {
-              if (this.linesMatchAt(fileLines, s, firstFewToCheck)) {
-                log.detail(`Re-anchored hunk from line ${oldStart} to line ${s + 1}`);
-                oldStart = s + 1;
-                anchored = true;
-                break;
+              // Calculate match score based on number of matching lines
+              let score = 0;
+              for (let j = 0; j < llmOldLines.length && (s + j) < fileLines.length; j++) {
+                if (this.linesMatchExactly(fileLines[s + j], llmOldLines[j])) {
+                  score += 1;
+                } else if (this.linesMatchFuzzily(fileLines[s + j], llmOldLines[j])) {
+                  score += 0.7; // Partial credit for fuzzy matches
+                }
               }
+              
+              if (score > bestScore && score > llmOldLines.length * 0.5) { // Require majority match
+                bestScore = score;
+                bestMatch = s;
+              }
+            }
+            
+            if (bestMatch !== -1) {
+              log.detail(`Re-anchored hunk from line ${oldStart} to line ${bestMatch + 1}`);
+              actualStart = bestMatch + 1;
+              anchored = true;
             }
           }
         }
 
         // Rebuild the hunk using actual file content for context and removals
         const newHunkLines: string[] = [];
-        let currentFileLine = oldStart;
+        let currentFileLine = actualStart;
 
         for (const line of hunkBody) {
           if (line.startsWith('+')) {
+            // Add the new line as provided
             newHunkLines.push(line);
           } else if (line.startsWith('-')) {
+            // Replace with actual file content for the line being removed
             if (currentFileLine >= 1 && currentFileLine <= fileLines.length) {
               newHunkLines.push('-' + fileLines[currentFileLine - 1]);
               currentFileLine++;
             } else {
+              // If we're past the end of the file, skip this removal
               log.detail(`Skipping overlong removal at line ${currentFileLine} (file has ${fileLines.length} lines)`);
             }
-          } else {
+          } else if (line.startsWith(' ')) {
+            // Context line - use actual file content
             if (currentFileLine >= 1 && currentFileLine <= fileLines.length) {
               newHunkLines.push(' ' + fileLines[currentFileLine - 1]);
               currentFileLine++;
+            } else {
+              // If we're past the end of the file, treat as addition
+              newHunkLines.push('+' + line.substring(1)); // Convert context to addition
             }
+          } else if (line.trim() !== '') {
+            // Non-diff line (might be a line that should be context)
+            // Try to match it against the actual file content
+            if (currentFileLine >= 1 && currentFileLine <= fileLines.length) {
+              if (this.linesMatchExactly(fileLines[currentFileLine - 1], line)) {
+                newHunkLines.push(' ' + fileLines[currentFileLine - 1]);
+                currentFileLine++;
+              } else {
+                // If it doesn't match, treat as addition
+                newHunkLines.push('+' + line);
+              }
+            } else {
+              newHunkLines.push('+' + line);
+            }
+          } else {
+            // Empty line - preserve it
+            newHunkLines.push(line);
           }
         }
 
-        // Recalculate counts
+        // Recalculate counts accurately
         const finalRemoved = newHunkLines.filter(l => l.startsWith('-')).length;
         const finalContext = newHunkLines.filter(l => l.startsWith(' ')).length;
         const finalAdded = newHunkLines.filter(l => l.startsWith('+')).length;
         const finalOldCount = finalContext + finalRemoved;
         const finalNewCount = finalContext + finalAdded;
 
-        // Calculate the new-side start line
-        const newStart = oldStart;
+        log.detail(`Repaired hunk: -${actualStart},${finalOldCount} +${actualStart},${finalNewCount}${anchored ? ' (anchored)' : ' (unanchored)'}`);
 
-        log.detail(`Repaired hunk: -${oldStart},${finalOldCount} +${newStart},${finalNewCount}${anchored ? ' (anchored)' : ' (unanchored)'}`);
-
-        resultLines.push(`@@ -${oldStart},${finalOldCount} +${newStart},${finalNewCount} @@`);
+        resultLines.push(`@@ -${actualStart},${finalOldCount} +${actualStart},${finalNewCount} @@`);
         resultLines.push(...newHunkLines);
       } else {
         resultLines.push(lines[i]);
@@ -1506,6 +1622,23 @@ RULES:
     }
 
     return resultLines.join('\n');
+  }
+
+  /**
+   * Check if lines match exactly (ignoring trailing whitespace)
+   */
+  private linesMatchExactly(line1: string, line2: string): boolean {
+    return line1.trimEnd() === line2.trimEnd();
+  }
+
+  /**
+   * Check if lines match fuzzily (similar content with minor differences)
+   */
+  private linesMatchFuzzily(line1: string, line2: string): boolean {
+    // Normalize whitespace and compare
+    const norm1 = line1.replace(/\s+/g, ' ').trim();
+    const norm2 = line2.replace(/\s+/g, ' ').trim();
+    return norm1 === norm2;
   }
 
   private linesMatchAt(fileLines: string[], startIdx: number, toMatch: string[]): boolean {

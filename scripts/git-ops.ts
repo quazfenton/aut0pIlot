@@ -4,8 +4,11 @@ import * as path from 'path';
 import * as os from 'os';
 
 const log = {
-  warn: (msg: string) => console.log(`\x1b[33m[GIT]\x1b[0m ${msg}`),
-  error: (msg: string) => console.log(`\x1b[31m[GIT]\x1b[0m ${msg}`),
+  warn: (msg: string) => console.log(`\x1b[38;5;208m[GIT-WARN]\x1b[0m ${msg}`),    // Orange for warnings
+  error: (msg: string) => console.log(`\x1b[31m[GIT-ERROR]\x1b[0m ${msg}`),         // Red for errors
+  info: (msg: string) => console.log(`\x1b[36m[GIT-INFO]\x1b[0m ${msg}`),           // Cyan for info
+  success: (msg: string) => console.log(`\x1b[32m[GIT-SUCCESS]\x1b[0m ${msg}`),      // Green for success
+  debug: (msg: string) => console.log(`\x1b[2m[GIT-DEBUG]\x1b[0m ${msg}`),          // Dim gray for debug
 };
 
 function redactToken(msg: string): string {
@@ -241,8 +244,85 @@ export class GitOps {
     return match ? match[1] : '';
   }
 
+  /**
+   * Execute git command with retry logic
+   */
+  private async gitExecWithRetry(args: string, cwd: string, opts: { pipe?: boolean; timeout?: number; retries?: number } = {}): Promise<string> {
+    const maxRetries = opts.retries ?? 2;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = execSync(`git ${args}`, {
+          cwd,
+          stdio: opts.pipe ? 'pipe' : 'ignore',
+          timeout: opts.timeout ?? 60000,
+        });
+        return result ? result.toString().trim() : '';
+      } catch (error: any) {
+        if (attempt === maxRetries) {
+          // Last attempt failed, throw the error
+          throw new Error(redactToken(error.message || String(error)));
+        }
+        
+        // Wait before retrying (exponential backoff)
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s, etc.
+        console.log(`[GIT] Command failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms: git ${args}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    // This should never be reached
+    throw new Error('Unexpected error in gitExecWithRetry');
+  }
+
   async push(repo: string, branch: string): Promise<void> {
-    gitExec(`push -u origin ${branch}`, this.getRepoDir(repo), { timeout: 120000 });
+    const repoDir = this.getRepoDir(repo);
+    
+    // Try to push with retry logic
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+      try {
+        // First, ensure we have the latest changes from remote
+        await this.gitExecWithRetry(`fetch origin`, repoDir);
+        
+        // Check if the remote branch has diverged
+        try {
+          const localSha = await this.gitExecWithRetry(`rev-parse HEAD`, repoDir, { pipe: true });
+          const remoteSha = await this.gitExecWithRetry(`rev-parse origin/${branch}`, repoDir, { pipe: true });
+          
+          if (localSha !== remoteSha) {
+            // Remote branch has changed, try to rebase
+            console.log(`[GIT] Remote branch ${branch} has changed, rebasing...`);
+            try {
+              await this.gitExecWithRetry(`rebase origin/${branch}`, repoDir);
+            } catch (rebaseErr) {
+              console.log(`[GIT] Rebase failed, falling back to merge...`);
+              await this.gitExecWithRetry(`merge origin/${branch}`, repoDir);
+            }
+          }
+        } catch (fetchErr) {
+          // Remote branch might not exist yet, which is fine
+          console.log(`[GIT] Remote branch ${branch} may not exist yet, continuing...`);
+        }
+        
+        // Perform the push
+        await this.gitExecWithRetry(`push -u origin ${branch}`, repoDir, { timeout: 120000 });
+        return; // Success, exit the retry loop
+        
+      } catch (error: any) {
+        attempts++;
+        console.log(`[GIT] Push attempt ${attempts} failed: ${error.message}`);
+        
+        if (attempts >= maxAttempts) {
+          throw error; // Re-throw the error after max attempts
+        }
+        
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
   }
 
   async runCommand(

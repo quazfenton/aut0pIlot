@@ -19,6 +19,10 @@ const c = {
   filter:  (msg: string) => console.log(`\x1b[2m[FILTER]\x1b[0m ${msg}`),
   error:   (msg: string) => console.log(`\x1b[31m[ERROR]\x1b[0m ${msg}`),
   success: (msg: string) => console.log(`\x1b[1;32m[OK]\x1b[0m ${msg}`),
+  commit:  (msg: string) => console.log(`\x1b[1;35m[COMMIT]\x1b[0m ${msg}`),  // Bright magenta for commits
+  push:    (msg: string) => console.log(`\x1b[1;36m[PUSH]\x1b[0m ${msg}`),    // Bright cyan for pushes
+  patch:   (msg: string) => console.log(`\x1b[38;5;208m[PATCH]\x1b[0m ${msg}`), // Orange for patches
+  git:     (msg: string) => console.log(`\x1b[38;5;240m[GIT]\x1b[0m ${msg}`),   // Gray for git operations
 };
 
 const PORT = Number(process.env.AGENT_PORT ?? '3000');
@@ -692,45 +696,60 @@ export class PRAutopilotAgent {
 
       // 5. Commit and Push
       if (appliedComments.length > 0 && !workflowFailed) {
-        console.log(`[JOB] Committing changes for ${appliedComments.length} comments`);
-        const commitMsg = `chore(pr-${job.pr}): fix multiple issues\n\nFixed comments:\n` + 
+        c.commit(`Committing changes for ${appliedComments.length} comments`);
+        const commitMsg = `chore(pr-${job.pr}): fix multiple issues\n\nFixed comments:\n` +
           appliedComments.map(c => `- ${c.file}:${c.start_line} (${c.id})`).join('\n');
-          
+
         const commitSha = await this.gitOps.commit(job.repo, commitMsg);
-        console.log(`[JOB] Committed as ${commitSha}`);
-        
-        await this.gitOps.push(job.repo, targetBranch);
+        c.commit(`Committed as ${commitSha}`);
 
-        let body = `### ✅ Successfully applied fixes for ${appliedComments.length} issues\n\n`;
-        body += `**Fixed items:**\n` + appliedComments.map(c => {
-          const fileLine = `${c.file}:${c.start_line}`;
-          if (c.url) {
-            return `- [${fileLine}](${c.url})`;
+        try {
+          await this.gitOps.push(job.repo, targetBranch);
+
+          let body = `### ✅ Successfully applied fixes for ${appliedComments.length} issues\n\n`;
+          body += `**Fixed items:**\n` + appliedComments.map(c => {
+            const fileLine = `${c.file}:${c.start_line}`;
+            if (c.url) {
+              return `- [${fileLine}](${c.url})`;
+            }
+            return `- ${fileLine}`;
+          }).join('\n');
+
+          if (workflowResults.length > 0) {
+            body += `\n\n**Workflow results:**\n` + workflowResults.map(r => `${r.success ? '✅' : '❌'} ${r.name}`).join('\n');
           }
-          return `- ${fileLine}`;
-        }).join('\n');
 
-        if (workflowResults.length > 0) {
-          body += `\n\n**Workflow results:**\n` + workflowResults.map(r => `${r.success ? '✅' : '❌'} ${r.name}`).join('\n');
+          body += `\n\nRe-running CI checks on commit \`${commitSha.slice(0, 7)}\`.`;
+
+          await this.octokit.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number: job.pr,
+            body,
+          });
+
+          this.stateMachine.incrementIteration(job.repo, job.pr);
+          for (const c of appliedComments) {
+            this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
+          }
+          this.stateMachine.transition(job.repo, job.pr, 'PUSHED');
+        } catch (pushError: any) {
+          console.error(`[JOB] Push failed: ${pushError.message}`);
+          
+          // Restore the applied comments to pending state so they can be retried
+          this.stateMachine.addPendingComments(job.repo, job.pr, appliedComments);
+          
+          // Also add back any comments that were marked as processed but not yet applied
+          const allPendingComments = [...appliedComments, ...needsApprovalComments];
+          for (const c of allPendingComments) {
+            this.stateMachine.unmarkCommentProcessed(job.repo, job.pr, c.id);
+          }
+          
+          throw new Error(`Push failed: ${pushError.message}`);
         }
-
-        body += `\n\nRe-running CI checks on commit \`${commitSha.slice(0, 7)}\`.`;
-
-        await this.octokit.rest.issues.createComment({
-          owner,
-          repo,
-          issue_number: job.pr,
-          body,
-        });
-
-        this.stateMachine.incrementIteration(job.repo, job.pr);
-        for (const c of appliedComments) {
-          this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
-        }
-        this.stateMachine.transition(job.repo, job.pr, 'PUSHED');
       } else if (workflowFailed) {
         console.log(`[JOB] Workflow failed, not committing`);
-        // We should ideally reset the git state here, but since we re-clone/re-checkout every time, 
+        // We should ideally reset the git state here, but since we re-clone/re-checkout every time,
         // it's not strictly necessary for the next job. But for this job, we're done.
         this.stateMachine.transition(job.repo, job.pr, 'FAILED', 'Workflow failed');
       }
