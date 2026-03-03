@@ -122,25 +122,29 @@ export class CommentTracker {
     
     // Check if comment already exists
     const existingIndex = file.comments.findIndex(c => c.id === comment.id);
-    
-    const trackedComment: TrackedComment = {
-      ...comment,
-      tracked_at: new Date().toISOString(),
-      status: 'received',
-      status_history: [{
-        status: 'received',
-        timestamp: new Date().toISOString(),
-      }],
-    };
 
     if (existingIndex >= 0) {
-      // Preserve existing status history if updating
+      // Update existing comment while preserving all tracked fields
       const existing = file.comments[existingIndex];
-      trackedComment.status_history = existing.status_history;
-      trackedComment.status = existing.status;
-      trackedComment.tracked_at = existing.tracked_at;
-      file.comments[existingIndex] = trackedComment;
+      file.comments[existingIndex] = {
+        ...comment,
+        ...existing,
+        id: comment.id, // Ensure ID is never overwritten
+        status_history: existing.status_history,
+        tracked_at: existing.tracked_at,
+      };
     } else {
+      const trackedComment: TrackedComment = {
+        ...comment,
+        tracked_at: new Date().toISOString(),
+        status: 'received',
+        status_history: [{
+          status: 'received',
+          timestamp: new Date().toISOString(),
+        }],
+      };
+      file.comments.push(trackedComment);
+    }
       file.comments.push(trackedComment);
     }
 
