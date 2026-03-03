@@ -94,14 +94,20 @@ describe('Queue', () => {
 
   describe('processing', () => {
     it('should process jobs', async () => {
+      vi.useFakeTimers();
       const handler = vi.fn().mockResolvedValue({ success: true });
       queue.registerHandler('test', handler);
 
       queue.addJob('test', 'owner/repo', 123, {}, 0);
-      queue.start(100); // Process every 100ms
+      queue.start(100);
 
-      // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(handler).toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('should retry failed jobs', async () => {
 
       expect(handler).toHaveBeenCalled();
     });

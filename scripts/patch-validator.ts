@@ -220,12 +220,15 @@ export class PatchValidator {
       const patchLines = patch.split('\n');
       const contextLines: string[] = [];
       const removedLines: string[] = [];
-      
+      const addedLines: string[] = [];
+
       for (const line of patchLines) {
         if (line.startsWith(' ')) {
           contextLines.push(line.substring(1));
         } else if (line.startsWith('-') && !line.startsWith('---')) {
           removedLines.push(line.substring(1));
+        } else if (line.startsWith('+') && !line.startsWith('+++')) {
+          addedLines.push(line.substring(1));
         }
       }
 
@@ -234,9 +237,19 @@ export class PatchValidator {
         result.lineCountMatch = false;
       }
 
-      // Verify context lines exist in file
-      for (const ctxLine of contextLines.slice(0, 3)) {
-        if (ctxLine.trim() && !fileContent.includes(ctxLine.trim())) {
+      // Verify context lines match exactly in file at expected position
+      const fileLines = fileContent.split('\n');
+      const hunkStartLine = expectedStart - 1; // convert to 0-based index
+
+      // Check above context (3 lines before the change)
+      for (let i = 0; i < Math.min(3, contextLines.length); i++) {
+        const ctxLine = contextLines[i];
+        const fileLine = fileLines[hunkStartLine - 3 + i];
+        if (ctxLine !== fileLine) {
+          result.aboveMatch = false;
+          break;
+        }
+      }
           result.aboveMatch = false;
           break;
         }
@@ -310,7 +323,6 @@ export class PatchValidator {
         if (content.startsWith('  ')) hasSpaces = true;
       }
     }
-
     return hasTabs && hasSpaces;
   }
 
@@ -330,7 +342,13 @@ export class PatchValidator {
 
     try {
       // Get the diff of the last commit
-      const diff = execSync(`git diff HEAD~1 -- "${filePath}"`, {
+      const diff = execSync('git diff HEAD~1 -- "$1"', {
+        cwd: this.repoDir,
+        encoding: 'utf-8',
+        input: filePath
+      });
+
+      if (!diff) {
         cwd: this.repoDir,
         encoding: 'utf-8',
       });

@@ -2,8 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ParsedReviewComment } from './types';
 
-export interface TrackedComment extends Omit<ParsedReviewComment, 'commit_sha'> {
-  commit_sha?: string;  // Make optional since it may not be set initially
+export interface TrackedComment extends ParsedReviewComment {
+  retry_count?: number;
+  last_error?: string;
+  patch?: string;
+  commit_sha?: string;
   tracked_at: string;
   status: 'received' | 'queued' | 'processing' | 'patch_generated' | 'committed' | 'failed' | 'skipped';
   status_history: Array<{
@@ -322,12 +325,18 @@ export class CommentTracker {
    */
   listTrackedPRs(): Array<{ repo: string; prNumber: number; file: string }> {
     const files = fs.readdirSync(this.baseDir).filter(f => f.endsWith('.json'));
-    
+
     return files.map(f => {
-      const match = f.match(/^(.+)_pr_(\d+)\.json$/);
+      const match = f.match(/^(.+?)_pr_(\d+)\.json$/);
       if (match) {
         return {
-          repo: match[1].replace(/_/g, '/'),
+          repo: match[1].replace(/__(?!_)/g, '/').replace(/__/g, '_'),
+          prNumber: parseInt(match[2], 10),
+          file: path.join(this.baseDir, f),
+        };
+      }
+      return null;
+    }).filter(Boolean) as Array<{ repo: string; prNumber: number; file: string }>;
           prNumber: parseInt(match[2], 10),
           file: path.join(this.baseDir, f),
         };

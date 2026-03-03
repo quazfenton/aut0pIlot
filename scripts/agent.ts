@@ -452,6 +452,11 @@ export class PRAutopilotAgent {
     if (runnable.length > 0) {
       // Mark runnable comments as queued
       this.commentTracker.markQueued(repofull, pr, runnable.map(c => c.id));
+      for (const comment of cleanedComments) {
+        if (!runnable.some(r => r.id === comment.id)) {
+          this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
+        }
+      }
       
       this.stateMachine.addPendingComments(repofull, pr, runnable);
       

@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PatchGenerator } from '../../scripts/patch-generator';
 import { PatchRequest } from '../../scripts/types';
 import * as fs from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { PatchGenerator } from '../../scripts/patch-generator';
+import { PatchRequest } from '../../scripts/types';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -22,7 +26,12 @@ describe('PatchGenerator', () => {
   describe('extractGitHubSuggestion', () => {
     it('should extract a basic suggestion block', async () => {
       const request: PatchRequest = {
-        repo: 'test/repo',
+        repo: 'pr-autopilot/test-repo',
+        pr: 1,
+        commit_sha: 'main',
+        file: 'test.ts',
+        start_line: 1,
+        end_line: 5,
         pr: 1,
         commit_sha: 'main',
         file: 'test.ts',
@@ -34,9 +43,14 @@ describe('PatchGenerator', () => {
 
       // This tests the mechanical extraction path
       const result = await generator.generatePatch(request, 1);
-      
+
       // Should attempt mechanical extraction first
-      expect(result).toBeDefined();
+      expect(result?.patch).toBe('const x = 1;');
+    });
+
+    it('should handle multiple suggestion blocks', async () => {
+      const request: PatchRequest = {
+        repo: 'test/repo',
     });
 
     it('should handle multiple suggestion blocks', async () => {
@@ -127,14 +141,14 @@ const b = 2;
       // Initialize git repo
       const { execSync } = require('child_process');
       execSync('git init', { cwd: tempDir, stdio: 'ignore' });
-      execSync('git config user.email "test@test.com"', { cwd: tempDir, stdio: 'ignore' });
+      execSync('git config user.email "test @test.com"', { cwd: tempDir, stdio: 'ignore' });
       execSync('git config user.name "Test"', { cwd: tempDir, stdio: 'ignore' });
       execSync('git add .', { cwd: tempDir, stdio: 'ignore' });
       execSync('git commit -m "initial"', { cwd: tempDir, stdio: 'ignore' });
 
       const validPatch = `--- a/test.ts
 +++ b/test.ts
-@@ -1,1 +1,1 @@
+ @@ -1,1 +1,1 @@
 -const x = 1;
 +const x = 2;
 `;
@@ -143,9 +157,17 @@ const b = 2;
       fs.writeFileSync(patchFile, validPatch);
 
       // Test git apply --check
+      let applySucceeded = false;
       try {
         execSync(`git apply --check "${patchFile}"`, { cwd: tempDir, stdio: 'pipe' });
-        expect(true).toBe(true);
+        applySucceeded = true;
+      } catch (error) {
+        // Capture the error for assertion
+        applySucceeded = false;
+      }
+      
+      expect(applySucceeded).toBe(true);
+    });
       } catch {
         // If it fails, that's also valid behavior for this test setup
         expect(true).toBe(true);

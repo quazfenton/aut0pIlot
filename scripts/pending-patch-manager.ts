@@ -32,7 +32,12 @@ export class PendingPatchManager {
     }
     try {
       const content = fs.readFileSync(this.pendingFile, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
     } catch {
       return [];
     }

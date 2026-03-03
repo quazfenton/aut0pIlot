@@ -577,8 +577,8 @@ Generate the patch now.
     }
 
     // Check for balanced +/- lines
-    const minusLines = (patch.match(/^\-/gm) || []).length;
-    const plusLines = (patch.match(/^\+/gm) || []).length;
+    const minusLines = (patch.match(/^-(?!--)/gm) || []).length;
+    const plusLines = (patch.match(/^\+(?!\+\+)/gm) || []).length;
     
     if (minusLines === 0 && plusLines === 0) {
       return { valid: false, error: 'Patch has no actual changes' };

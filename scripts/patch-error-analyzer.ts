@@ -186,7 +186,12 @@ export class PatchErrorAnalyzer {
       const oldStart = parseInt(headerMatch[1], 10);
       const newStart = parseInt(headerMatch[2], 10);
 
-      let fileLineIdx = oldStart - 1;
+      let fileLineIdx = (oldStart - 1) + (startLine - 1);
+      let patchLineIdx = 0;
+
+      for (const patchLine of hunk.lines) {
+        if (patchLine.startsWith('-')) {
+          // Context line - should match file
       let patchLineIdx = 0;
 
       for (const patchLine of hunk.lines) {
