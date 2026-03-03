@@ -956,12 +956,13 @@ RULES:
     fs.writeFileSync(promptFile, prompt);
 
     try {
-      log.llmCall(`Calling Qwen CLI with ${prompt.length} chars`);
+      log.detail(`Calling Qwen with ${prompt.length} chars prompt`);
 
       // Use qwen with file input instead of piping
       const output = execSync(
         `qwen "$(cat ${promptFile})"`,
         {
+          cwd: this.tempDir,
           stdio: 'pipe',
           timeout: 180000,
           maxBuffer: 4 * 1024 * 1024,
@@ -972,13 +973,13 @@ RULES:
       log.detail(`Qwen returned ${output.length} chars`);
 
       if (!output) {
-        return { success: false, error: 'Qwen returned empty output', retryable: false };
+        return { success: false, error: 'Qwen returned empty output' };
       }
 
       return { success: true, output };
     } catch (error: any) {
-      log.error(`Qwen CLI failed: ${error.message?.substring(0, 200)}`);
-      return { success: false, error: `Qwen CLI failed: ${error.message}`, retryable: false };
+      log.error(`Qwen failed: ${error.message?.substring(0, 200)}`);
+      return { success: false, error: `Qwen failed: ${error.message}` };
     } finally {
       if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);
     }
@@ -1365,7 +1366,7 @@ RULES:
           if (fetchAndCheckout(commitSha, repoDir)) {
             log.step(`Checked out commit ${commitSha}`);
           } else {
-            log.warn(`Could not checkout ${commitSha}, using current HEAD`);
+            log.warn(`Could not checkout ${commitSha}, using HEAD`);
           }
         }
 
