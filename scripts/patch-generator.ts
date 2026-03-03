@@ -654,27 +654,6 @@ export class PatchGenerator {
   /**
    * Extract code block from LLM response
    */
-  private extractCodeBlock(response: string): string | null {
-    // Try various code block formats
-    // Format 1: ```lang\ncode\n```
-    const match1 = response.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
-    if (match1) {
-      const code = match1[1].replace(/\r\n/g, '\n').trimEnd();
-      log.detail(`Extracted code block (${code.length} chars)`);
-      return code;
-    }
-
-    // Format 2: ```code```
-    const match2 = response.match(/```([\s\S]*?)```/);
-    if (match2) {
-      const code = match2[1].replace(/\r\n/g, '\n').trimEnd();
-      log.detail(`Extracted code block (${code.length} chars)`);
-      return code;
-    }
-
-    return null;
-  }
-
   private restoreBaselineIndent(newCode: string, originalLines: string[]): string {
     const leadingWs = (s: string) => (s.match(/^[\t ]*/)?.[0] ?? '');
 

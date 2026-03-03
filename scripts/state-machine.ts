@@ -217,7 +217,7 @@ export class PRStateMachine {
   /**
    * Set helper branch for a PR
    */
-  setHelperBranch(repo: string, pr: number, branch: string): void {
+  setHelperBranch(repo: string, pr: number, branch: string | undefined): void {
     this.updateState(repo, pr, { helper_branch: branch });
   }
 }

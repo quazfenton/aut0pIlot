@@ -447,7 +447,8 @@ export class GitOps {
     }
   }
 
-  private getRepoDir(repo: string): string {
+  // Expose workDir for external scripts
+  getRepoDir(repo: string): string {
     const [, repoName] = repo.split('/');
     return path.join(this.workDir, repoName);
   }
@@ -467,5 +468,9 @@ export class GitOps {
   // Method to clear the cloned repos cache without full cleanup
   clearRepoCache(): void {
     clonedRepos.clear();
+  }
+
+  getWorkDir(): string {
+    return this.workDir;
   }
 }

@@ -8,6 +8,7 @@ import { ConfigLoader } from './config-loader';
 import { PatchGenerator } from './patch-generator';
 import { GitOps } from './git-ops';
 import { PRStateMachine } from './state-machine';
+import { CommentTracker, TrackedComment } from './comment-tracker';
 import { ParsedReviewComment, PatchRequest, PRConfig } from './types';
 import * as crypto from 'crypto';
 
@@ -50,6 +51,7 @@ export class PRAutopilotAgent {
   private patchGenerator = new PatchGenerator();
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
+  private commentTracker = new CommentTracker();
   private cleanupRegistered = false;
 
   constructor() {
@@ -435,6 +437,10 @@ export class PRAutopilotAgent {
       return;
     }
 
+    // Track all received comments
+    const trackedComments = this.commentTracker.addComments(repofull, pr, cleanedComments);
+    c.comment(`Tracked ${trackedComments.length} comments for ${repofull}#${pr}`);
+
     const { owner, repo } = this.splitRepo(repofull);
     c.comment(`Loading config for ${owner}/${repo}`);
     const config = await this.configLoader.loadConfig(owner, repo);
@@ -444,6 +450,9 @@ export class PRAutopilotAgent {
     c.comment(`${runnable.length}/${cleanedComments.length} comments are runnable after config filtering`);
     
     if (runnable.length > 0) {
+      // Mark runnable comments as queued
+      this.commentTracker.markQueued(repofull, pr, runnable.map(c => c.id));
+      
       this.stateMachine.addPendingComments(repofull, pr, runnable);
       
       // Check if a job for this PR is already in the queue
@@ -455,6 +464,13 @@ export class PRAutopilotAgent {
         this.queue.addJob('process_pr', repofull, pr, { config }, 0);
       } else {
         c.comment(`Batch job already queued for ${repofull}#${pr}, comments added to pending list`);
+      }
+    } else {
+      // Mark non-runnable comments as skipped
+      for (const comment of cleanedComments) {
+        if (!runnable.some(r => r.id === comment.id)) {
+          this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
+        }
       }
     }
   }
@@ -548,6 +564,11 @@ export class PRAutopilotAgent {
     const data = job.data as ProcessJobData;
     const { owner, repo } = this.splitRepo(job.repo);
 
+    // Initialize arrays before try block so they're accessible in catch
+    const appliedComments: ParsedReviewComment[] = [];
+    const rejectedComments: { comment: ParsedReviewComment; error: string }[] = [];
+    const needsApprovalComments: ParsedReviewComment[] = [];
+
     try {
       // 1. Get pending comments
       const pendingComments = this.stateMachine.getAndClearPendingComments(job.repo, job.pr);
@@ -603,12 +624,11 @@ export class PRAutopilotAgent {
       const currentHeadSha = await this.gitOps.getCurrentCommit(job.repo);
 
       // 3. Process each comment
-      const appliedComments: ParsedReviewComment[] = [];
-      const rejectedComments: { comment: ParsedReviewComment; error: string }[] = [];
-      const needsApprovalComments: ParsedReviewComment[] = [];
-
       for (const comment of pendingComments) {
         if (!comment.file) continue;
+
+        // Mark comment as processing
+        this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'processing');
 
         const level = this.determineAutomationLevel(comment, data.config);
         console.log(`[JOB] Generating patch for ${comment.file} (level ${level})`);
@@ -637,8 +657,12 @@ export class PRAutopilotAgent {
         if (!patchResult.success || !patchResult.patch) {
           console.log(`[JOB] Patch generation failed for ${comment.id}: ${patchResult.error}`);
           rejectedComments.push({ comment, error: patchResult.error || 'Patch generation failed' });
+          this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'failed', { error: patchResult.error });
           continue;
         }
+
+        // Mark patch generated
+        this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'patch_generated', { patch: patchResult.patch?.substring(0, 500) });
 
         if (patchResult.requires_approval) {
           console.log(`[JOB] Patch for ${comment.id} requires approval`);
@@ -660,6 +684,7 @@ export class PRAutopilotAgent {
         } catch (error: any) {
           console.log(`[JOB] Failed to apply patch for ${comment.id}: ${error.message}`);
           rejectedComments.push({ comment, error: `Failed to apply patch: ${error.message}` });
+          this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'failed', { error: error.message });
         }
       }
 
@@ -746,6 +771,8 @@ export class PRAutopilotAgent {
           this.stateMachine.incrementIteration(job.repo, job.pr);
           for (const c of appliedComments) {
             this.stateMachine.markCommentProcessed(job.repo, job.pr, c.id);
+            // Mark comment as committed in tracker
+            this.commentTracker.updateStatus(job.repo, job.pr, c.id, 'committed', { commit_sha: commitSha });
           }
           this.stateMachine.transition(job.repo, job.pr, 'PUSHED');
         } catch (pushError: any) {
