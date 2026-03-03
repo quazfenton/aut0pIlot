@@ -20,10 +20,23 @@ export interface LineMismatch {
   type: 'removal' | 'addition' | 'context';
 }
 
+export interface DiffHighlight {
+  patchFile: string;
+  patchStartLine: number;
+  patchEndLine: number;
+  fileStartLine: number;
+  fileEndLine: number;
+  patchLines: string[];
+  fileLines: string[];
+  mismatches: LineMismatch[];
+  visualDiff: string;
+}
+
 const log = {
   analyze: (msg: string) => console.log(`\x1b[38;5;221m[ANALYZE]\x1b[0m ${msg}`),
   error: (msg: string) => console.log(`\x1b[31m[ANALYZE-ERR]\x1b[0m ${msg}`),
   suggest: (msg: string) => console.log(`\x1b[33m[SUGGEST]\x1b[0m ${msg}`),
+  highlight: (msg: string) => console.log(`\x1b[38;5;117m[HIGHLIGHT]\x1b[0m ${msg}`),
 };
 
 export class PatchErrorAnalyzer {
@@ -319,6 +332,228 @@ Please generate a NEW patch that addresses these issues:
 5. **Format as unified diff** with proper --- a/file and +++ b/file headers
 
 Generate the corrected patch now:`;
+  }
+
+  /**
+   * Generate a visual side-by-side diff highlighting mismatches
+   */
+  generateDiffHighlight(
+    patchContent: string,
+    fileContent: string,
+    filePath: string
+  ): DiffHighlight {
+    const fileLines = fileContent.split('\n');
+    const { hunks } = this.parseUnifiedDiff(patchContent);
+    
+    if (hunks.length === 0) {
+      return {
+        patchFile: filePath,
+        patchStartLine: 0,
+        patchEndLine: 0,
+        fileStartLine: 0,
+        fileEndLine: 0,
+        patchLines: [],
+        fileLines: [],
+        mismatches: [],
+        visualDiff: 'No hunks found in patch'
+      };
+    }
+
+    const hunk = hunks[0];
+    const headerMatch = hunk.header.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@/);
+    
+    if (!headerMatch) {
+      return {
+        patchFile: filePath,
+        patchStartLine: 0,
+        patchEndLine: 0,
+        fileStartLine: 0,
+        fileEndLine: 0,
+        patchLines: [],
+        fileLines: [],
+        mismatches: [],
+        visualDiff: 'Could not parse hunk header'
+      };
+    }
+
+    const oldStart = parseInt(headerMatch[1], 10);
+    const oldCount = parseInt(headerMatch[2] || '1', 10);
+    
+    // Extract patch lines and file lines for comparison
+    const patchLines: string[] = [];
+    const removedLines: string[] = [];
+    const addedLines: string[] = [];
+
+    for (const line of hunk.lines) {
+      if (line.startsWith(' ')) {
+        patchLines.push(line.substring(1));
+      } else if (line.startsWith('-')) {
+        removedLines.push(line.substring(1));
+      } else if (line.startsWith('+')) {
+        addedLines.push(line.substring(1));
+      }
+    }
+
+    // Get corresponding file lines
+    const fileStartLine = Math.max(0, oldStart - 1);
+    const fileEndLine = Math.min(fileLines.length, oldStart + oldCount + 2);
+    const correspondingFileLines = fileLines.slice(fileStartLine, fileEndLine);
+
+    // Find mismatches
+    const mismatches = this.findLineMismatches(patchContent, fileLines, oldStart);
+
+    // Generate visual diff
+    const visualDiff = this.createVisualDiff(
+      patchLines,
+      removedLines,
+      addedLines,
+      correspondingFileLines,
+      mismatches,
+      oldStart
+    );
+
+    return {
+      patchFile: filePath,
+      patchStartLine: oldStart,
+      patchEndLine: oldStart + oldCount,
+      fileStartLine: fileStartLine + 1,
+      fileEndLine,
+      patchLines,
+      fileLines: correspondingFileLines,
+      mismatches,
+      visualDiff
+    };
+  }
+
+  /**
+   * Create a visual side-by-side diff display
+   */
+  private createVisualDiff(
+    patchLines: string[],
+    removedLines: string[],
+    addedLines: string[],
+    fileLines: string[],
+    mismatches: LineMismatch[],
+    startLine: number
+  ): string {
+    const output: string[] = [];
+    
+    output.push('\n╔════════════════════════════════════════════════════════════════╗');
+    output.push('║                    PATCH vs FILE COMPARISON                     ║');
+    output.push('╚════════════════════════════════════════════════════════════════╝\n');
+
+    // Create mismatch lookup
+    const mismatchMap = new Map<number, LineMismatch>();
+    for (const m of mismatches) {
+      mismatchMap.set(m.fileLine, m);
+    }
+
+    // Show file content with highlights
+    output.push('📄 FILE CONTENT (with mismatches highlighted):');
+    output.push('─'.repeat(70));
+    
+    for (let i = 0; i < fileLines.length; i++) {
+      const lineNum = startLine + i;
+      const mismatch = mismatchMap.get(lineNum);
+      
+      if (mismatch) {
+        output.push(`\x1b[31m${lineNum.toString().padStart(4)} | ${mismatch.actual}\x1b[0m`);
+        output.push(`\x1b[33m     | Expected: ${mismatch.expected}\x1b[0m`);
+        output.push(`\x1b[33m     | ❌ MISMATCH (type: ${mismatch.type})\x1b[0m`);
+      } else {
+        output.push(`\x1b[32m${lineNum.toString().padStart(4)} | ${fileLines[i]}\x1b[0m`);
+      }
+    }
+
+    output.push('\n📝 PATCH CONTENT:');
+    output.push('─'.repeat(70));
+
+    // Show patch content
+    for (const line of patchLines) {
+      output.push(`      | ${line}`);
+    }
+
+    if (removedLines.length > 0) {
+      output.push('\n\x1b[31mRemoved lines:\x1b[0m');
+      for (const line of removedLines) {
+        output.push(`\x1b[31m  -   | ${line}\x1b[0m`);
+      }
+    }
+
+    if (addedLines.length > 0) {
+      output.push('\n\x1b[32mAdded lines:\x1b[0m');
+      for (const line of addedLines) {
+        output.push(`\x1b[32m  +   | ${line}\x1b[0m`);
+      }
+    }
+
+    // Summary
+    output.push('\n📊 SUMMARY:');
+    output.push('─'.repeat(70));
+    output.push(`Total mismatches: ${mismatches.length}`);
+    output.push(`File lines shown: ${fileLines.length}`);
+    output.push(`Patch lines: ${patchLines.length}`);
+    output.push(`Removed: ${removedLines.length}, Added: ${addedLines.length}`);
+
+    if (mismatches.length > 0) {
+      output.push('\n\x1b[31m⚠️  ERRORS:\x1b[0m');
+      for (const m of mismatches.slice(0, 5)) {
+        output.push(`  Line ${m.fileLine}: "${m.actual.substring(0, 50)}"`);
+        output.push(`    Expected: "${m.expected.substring(0, 50)}"`);
+      }
+      if (mismatches.length > 5) {
+        output.push(`  ... and ${mismatches.length - 5} more`);
+      }
+    }
+
+    output.push('\n');
+    return output.join('\n');
+  }
+
+  /**
+   * Generate enhanced error report with visual diff
+   */
+  generateEnhancedErrorReport(
+    analysis: PatchErrorAnalysis,
+    patchContent: string,
+    fileContent: string,
+    filePath: string
+  ): string {
+    const fileLines = fileContent.split('\n');
+    const diffHighlight = this.generateDiffHighlight(patchContent, fileContent, filePath);
+
+    let report = `# Patch Error Report for ${filePath}\n\n`;
+    
+    report += `## Error Summary\n`;
+    report += `- **Type**: ${analysis.errorType}\n`;
+    report += `- **Raw Error**: ${analysis.rawError.substring(0, 500)}\n\n`;
+
+    report += diffHighlight.visualDiff;
+
+    report += `\n## Suggestions to Fix\n\n`;
+    for (const suggestion of analysis.suggestions) {
+      report += `- ${suggestion}\n`;
+    }
+
+    return report;
+  }
+
+  /**
+   * Log enhanced error report to console with colors
+   */
+  logEnhancedError(
+    analysis: PatchErrorAnalysis,
+    patchContent: string,
+    fileContent: string,
+    filePath: string
+  ): void {
+    const report = this.generateEnhancedErrorReport(analysis, patchContent, fileContent, filePath);
+    
+    console.log('\n\x1b[1;31m╔══════════════════════════════════════════════════════════════╗\x1b[0m');
+    console.log('\x1b[1;31m║              PATCH APPLICATION ERROR REPORT                   ║\x1b[0m');
+    console.log('\x1b[1;31m╚══════════════════════════════════════════════════════════════╝\x1b[0m\n');
+    
+    console.log(report);
   }
 }
 
