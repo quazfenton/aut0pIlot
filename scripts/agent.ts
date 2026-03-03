@@ -10,6 +10,7 @@ import { GitOps } from './git-ops';
 import { PRStateMachine } from './state-machine';
 import { CommentTracker, TrackedComment } from './comment-tracker';
 import { ParsedReviewComment, PatchRequest, PRConfig } from './types';
+import { ApprovalManager } from './approval-manager';
 import * as crypto from 'crypto';
 
 const c = {
@@ -52,6 +53,7 @@ export class PRAutopilotAgent {
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
   private commentTracker = new CommentTracker();
+  private approvalManager: ApprovalManager;
   private cleanupRegistered = false;
 
   constructor() {
@@ -78,8 +80,6 @@ export class PRAutopilotAgent {
       this.octokit = new Octokit({ auth: GITHUB_TOKEN });
     } else {
       console.log('🔑 Using GitHub App authentication');
-      // TODO: Implement GitHub App authentication with @octokit/app
-      // For now, throw an error since it's not fully implemented
       throw new Error(
         'GitHub App authentication is not yet fully implemented.\n' +
         'Please use GITHUB_TOKEN (Personal Access Token) for now.\n' +
@@ -88,11 +88,11 @@ export class PRAutopilotAgent {
     }
 
     this.configLoader = new ConfigLoader(this.octokit);
-    this.gitOps = new GitOps(GITHUB_TOKEN!); // GitOps needs the token for git operations
+    this.gitOps = new GitOps(GITHUB_TOKEN!);
     this.webhooks = new Webhooks({ secret: WEBHOOK_SECRET });
+    this.approvalManager = new ApprovalManager(this.octokit);
 
     // Register raw body plugin FIRST, before any routes
-    // This must run before JSON parsing to capture the raw body
     this.fastify.register(fastifyRawBody, {
       field: 'rawBody',
       global: false,
@@ -104,7 +104,7 @@ export class PRAutopilotAgent {
     this.queue.registerHandler('run_command', job => this.handleRunCommandJob(job));
     this.registerWebhookHandlers();
     this.queue.start(1500);
-    
+
     // Register cleanup for graceful shutdown
     this.registerCleanup();
   }
@@ -172,7 +172,102 @@ export class PRAutopilotAgent {
         handlersRegistered: true
       };
     });
-    
+
+    // Approval management endpoints
+    this.fastify.get('/approvals', async (request, reply) => {
+      const { repo, pr, status } = request.query as { repo?: string; pr?: string; status?: string };
+      
+      let approvals = this.approvalManager.listApprovals(status as any);
+      
+      if (repo) {
+        approvals = approvals.filter(a => a.repo === repo);
+        if (pr) {
+          approvals = approvals.filter(a => a.pr === parseInt(pr));
+        }
+      }
+      
+      return {
+        count: approvals.length,
+        approvals
+      };
+    });
+
+    this.fastify.get('/approvals/pending', async (request, reply) => {
+      const { repo, pr } = request.query as { repo?: string; pr?: string };
+      
+      let pending = this.approvalManager.getPendingApprovals(repo || '');
+      
+      if (pr) {
+        pending = pending.filter(a => a.pr === parseInt(pr));
+      }
+      
+      return {
+        count: pending.length,
+        pending
+      };
+    });
+
+    this.fastify.get('/approvals/:id', async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const approval = this.approvalManager.getApproval(id);
+      
+      if (!approval) {
+        return reply.code(404).send({ error: 'Approval not found' });
+      }
+      
+      return approval;
+    });
+
+    this.fastify.post('/approvals/:id/approve', async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { user } = request.body as { user: string };
+      
+      if (!user) {
+        return reply.code(400).send({ error: 'user is required' });
+      }
+      
+      const approval = this.approvalManager.getApproval(id);
+      if (!approval) {
+        return reply.code(404).send({ error: 'Approval not found' });
+      }
+      
+      const success = await this.approvalManager.approve(approval.repo, approval.pr, id, user);
+      
+      if (success) {
+        return { success: true, message: 'Approval granted' };
+      } else {
+        return reply.code(400).send({ error: 'Approval already processed' });
+      }
+    });
+
+    this.fastify.post('/approvals/:id/reject', async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { user, reason } = request.body as { user: string; reason?: string };
+      
+      if (!user) {
+        return reply.code(400).send({ error: 'user is required' });
+      }
+      
+      const approval = this.approvalManager.getApproval(id);
+      if (!approval) {
+        return reply.code(404).send({ error: 'Approval not found' });
+      }
+      
+      const success = await this.approvalManager.reject(approval.repo, approval.pr, id, user, reason);
+      
+      if (success) {
+        return { success: true, message: 'Approval rejected' };
+      } else {
+        return reply.code(400).send({ error: 'Approval already processed' });
+      }
+    });
+
+    this.fastify.get('/approvals/report', async (request, reply) => {
+      const report = this.approvalManager.generateReport();
+      reply.type('text/markdown');
+      return report;
+    });
+
     // Register cleanup for graceful shutdown
     if (!this.cleanupRegistered) {
       this.registerCleanup();
@@ -365,9 +460,10 @@ export class PRAutopilotAgent {
         if (context.payload.issue.pull_request) {
           const repoFull = context.payload.repository?.full_name;
           const prNumber = context.payload.issue.number;
-          c.handler(`Processing issue comment for PR ${repoFull}#${prNumber}`);
+          const commentAuthor = context.payload.comment?.user?.login || 'unknown';
+          c.handler(`Processing issue comment for PR ${repoFull}#${prNumber} by ${commentAuthor}`);
           if (repoFull) {
-            await this.handleIssueComment(repoFull, prNumber, context.payload.comment.body);
+            await this.handleIssueComment(repoFull, prNumber, context.payload.comment.body, commentAuthor);
           }
         } else {
           c.handler(`Skipping: not a PR comment`);
@@ -475,7 +571,7 @@ export class PRAutopilotAgent {
     }
   }
 
-  private async handleIssueComment(repofull: string, pr: number, body: string): Promise<void> {
+  private async handleIssueComment(repofull: string, pr: number, body: string, commentAuthor?: string): Promise<void> {
     const trimmedBody = body.trim();
     c.comment(`Handling command in ${repofull}#${pr}: ${trimmedBody.slice(0, 50)}...`);
 
@@ -493,8 +589,8 @@ export class PRAutopilotAgent {
       if (commandToRun) {
         c.comment(`Manual command requested: ${commandToRun}`);
         const config = await this.configLoader.loadConfig(this.splitRepo(repofull).owner, this.splitRepo(repofull).repo);
-        this.queue.addJob('run_command', repofull, pr, { command: commandToRun, config }, 10); // Higher priority
-        
+        this.queue.addJob('run_command', repofull, pr, { command: commandToRun, config }, 10);
+
         await this.octokit.rest.issues.createComment({
           owner: this.splitRepo(repofull).owner,
           repo: this.splitRepo(repofull).repo,
@@ -502,7 +598,215 @@ export class PRAutopilotAgent {
           body: `🚀 Queued manual command: \`${commandToRun}\``,
         });
       }
+    } else if (trimmedBody.startsWith('/pr-autopilot approve ')) {
+      // Handle approval command
+      const approvalId = trimmedBody.replace('/pr-autopilot approve ', '').trim().split(' ')[0];
+      if (approvalId) {
+        c.comment(`Approval command detected: ${approvalId}`);
+        await this.handleApprovalCommand(repofull, pr, approvalId, commentAuthor || 'unknown', 'approve');
+      }
+    } else if (trimmedBody.startsWith('/pr-autopilot reject ')) {
+      // Handle rejection command
+      const parts = trimmedBody.replace('/pr-autopilot reject ', '').trim().split(' ');
+      const approvalId = parts[0];
+      const reason = parts.slice(1).join(' ') || 'No reason provided';
+      
+      if (approvalId) {
+        c.comment(`Rejection command detected: ${approvalId}`);
+        await this.handleApprovalCommand(repofull, pr, approvalId, commentAuthor || 'unknown', 'reject', reason);
+      }
+    } else if (trimmedBody === '/pr-autopilot approvals' || trimmedBody === '/pr-autopilot pending') {
+      // List pending approvals
+      await this.handleListApprovalsCommand(repofull, pr);
+    } else if (trimmedBody.startsWith('/pr-autopilot approval ')) {
+      // Show approval details
+      const approvalId = trimmedBody.replace('/pr-autopilot approval ', '').trim();
+      if (approvalId) {
+        await this.handleApprovalDetailsCommand(repofull, pr, approvalId);
+      }
     }
+  }
+
+  /**
+   * Handle approval/rejection command
+   */
+  private async handleApprovalCommand(
+    repo: string,
+    pr: number,
+    approvalId: string,
+    user: string,
+    action: 'approve' | 'reject',
+    reason?: string
+  ): Promise<void> {
+    const { owner, repo: repoName } = this.splitRepo(repo);
+    
+    // Check if user can approve
+    const canApprove = await this.approvalManager.canUserApprove(repo, user, pr);
+    
+    if (!canApprove) {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `❌ **Permission Denied**\n\n@${user} you don't have permission to approve patches for this repository.\n\nOnly repository owners, admins, or users with push/maintain access can approve patches.`
+      });
+      return;
+    }
+
+    // Get approval
+    const approval = this.approvalManager.getApproval(approvalId);
+    
+    if (!approval) {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `❌ **Approval Not Found**\n\nApproval ID \`${approvalId}\` not found.\n\nUse \`/pr-autopilot approvals\` to see pending approvals.`
+      });
+      return;
+    }
+
+    if (approval.repo !== repo || approval.pr !== pr) {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `❌ **Invalid PR**\n\nThis approval is for a different PR (${approval.repo}#${approval.pr}).`
+      });
+      return;
+    }
+
+    // Process approval/rejection
+    let success: boolean;
+    if (action === 'approve') {
+      success = await this.approvalManager.approve(repo, pr, approvalId, user);
+    } else {
+      success = await this.approvalManager.reject(repo, pr, approvalId, user, reason);
+    }
+
+    if (success) {
+      // If approved, add comment to pending comments for reprocessing
+      if (action === 'approve') {
+        const { ParsedReviewComment } = await import('./types');
+        const comment: ParsedReviewComment = {
+          id: approval.commentId,
+          file: approval.file,
+          start_line: approval.startLine,
+          end_line: approval.endLine,
+          type: 'suggested_change',
+          content: 'Approved patch',
+          author: user,
+          commit_sha: ''
+        };
+        
+        this.stateMachine.addPendingComments(repo, pr, [comment]);
+        
+        // Queue a job to process the approved patch
+        const config = await this.configLoader.loadConfig(owner, repoName);
+        this.queue.addJob('process_pr', repo, pr, { config }, 10);
+        
+        c.success(`Approval ${approvalId} processed, patch will be applied`);
+      } else {
+        c.success(`Rejection ${approvalId} processed, patch discarded`);
+      }
+    } else {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `⚠️ **Approval Already Processed**\n\nThis approval has already been ${approval.status}.`
+      });
+    }
+  }
+
+  /**
+   * List pending approvals command
+   */
+  private async handleListApprovalsCommand(repo: string, pr: number): Promise<void> {
+    const { owner, repo: repoName } = this.splitRepo(repo);
+    const pending = this.approvalManager.getPendingApprovals(repo, pr);
+
+    if (pending.length === 0) {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `✅ **No Pending Approvals**\n\nAll patches for this PR have been processed.`
+      });
+      return;
+    }
+
+    let body = `📋 **Pending Approvals** (${pending.length})\n\n`;
+    body += '| ID | File | Lines | Reason | Created |\n';
+    body += '|---|---|---|---|---|\n';
+    
+    for (const approval of pending) {
+      const created = new Date(approval.createdAt).toLocaleString();
+      body += `| \`${approval.id.substring(0, 20)}...\` | ${approval.file} | ${approval.startLine}-${approval.endLine} | ${approval.reason} | ${created} |\n`;
+    }
+
+    body += '\n---\n\n';
+    body += '**Commands:**\n';
+    body += '- Approve: `/pr-autopilot approve <ID>`\n';
+    body += '- Reject: `/pr-autopilot reject <ID> [reason]`\n';
+    body += '- Details: `/pr-autopilot approval <ID>`';
+
+    await this.octokit.rest.issues.createComment({
+      owner,
+      repo: repoName,
+      issue_number: pr,
+      body
+    });
+  }
+
+  /**
+   * Show approval details command
+   */
+  private async handleApprovalDetailsCommand(repo: string, pr: number, approvalId: string): Promise<void> {
+    const { owner, repo: repoName } = this.splitRepo(repo);
+    const approval = this.approvalManager.getApproval(approvalId);
+
+    if (!approval) {
+      await this.octokit.rest.issues.createComment({
+        owner,
+        repo: repoName,
+        issue_number: pr,
+        body: `❌ **Approval Not Found**\n\nApproval ID \`${approvalId}\` not found.`
+      });
+      return;
+    }
+
+    let body = `📄 **Approval Details**\n\n`;
+    body += `**ID**: \`${approval.id}\`\n`;
+    body += `**File**: \`${approval.file}:${approval.startLine}-${approval.endLine}\`\n`;
+    body += `**Status**: ${approval.status}\n`;
+    body += `**Reason**: ${approval.reason}\n`;
+    body += `**Created**: ${new Date(approval.createdAt).toLocaleString()}\n`;
+    
+    if (approval.approvedBy) {
+      body += `**${approval.status === 'approved' ? 'Approved' : 'Rejected'} by**: @${approval.approvedBy}\n`;
+      body += `**${approval.status === 'approved' ? 'Approved' : 'Rejected'} at**: ${new Date(approval.approvedAt!).toLocaleString()}\n`;
+    }
+    
+    if (approval.reviewComment) {
+      body += `**Comment**: ${approval.reviewComment}\n`;
+    }
+
+    body += '\n---\n\n';
+    body += '**Patch:**\n\n';
+    body += '```diff\n';
+    body += approval.patch.substring(0, 2000);
+    if (approval.patch.length > 2000) {
+      body += '\n... (truncated)';
+    }
+    body += '\n```';
+
+    await this.octokit.rest.issues.createComment({
+      owner,
+      repo: repoName,
+      issue_number: pr,
+      body
+    });
   }
 
   private splitRepo(repofull: string): { owner: string; repo: string } {
@@ -525,38 +829,74 @@ export class PRAutopilotAgent {
   private async handleRunCommandJob(job: Job): Promise<JobResult> {
     const { owner, repo } = this.splitRepo(job.repo);
     const data = job.data;
-    
+
     try {
       c.job(`Running manual command for ${job.repo}#${job.pr}: ${data.command}`);
-      
+
       const pr = await this.octokit.rest.pulls.get({ owner, repo, pull_number: job.pr });
       const headRef = pr.data.head.ref;
-      
+
       await this.gitOps.clone(job.repo);
-      
+
       const helperBranch = this.stateMachine.getHelperBranch(job.repo, job.pr);
       const targetBranch = helperBranch || headRef;
-      
+
       await this.gitOps.checkout(job.repo, targetBranch);
-      
+
       const result = await this.gitOps.runCommand(job.repo, data.command);
-      
+
       const statusIcon = result.success ? '✅' : '❌';
       const output = result.output.trim();
       const formattedOutput = output ? `\n\`\`\`\n${output.slice(0, 1500)}${output.length > 1500 ? '...' : ''}\n\`\`\`` : '_No output_';
-      
+
       await this.octokit.rest.issues.createComment({
         owner,
         repo,
         issue_number: job.pr,
         body: `### ${statusIcon} Command Result: \`${data.command}\`\n${formattedOutput}`,
       });
-      
+
       return { success: true };
     } catch (error: any) {
       c.error(`Manual command job failed: ${error.message}`);
       return { success: false, error: error.message };
     }
+  }
+
+  /**
+   * Post approval request comment to PR
+   */
+  private async postApprovalRequest(
+    repo: string,
+    pr: number,
+    comment: ParsedReviewComment,
+    approval: any,
+    reason?: string
+  ): Promise<void> {
+    const { owner, repo: repoName } = this.splitRepo(repo);
+    
+    const reasonText = reason ? ` (${reason})` : '';
+    
+    let body = `⚠️ **Patch Requires Approval**\n\n`;
+    body += `**File**: \`${comment.file}:${comment.start_line}-${comment.end_line}\`\n`;
+    body += `**Reason**: ${reason || 'Manual review required'}\n`;
+    body += `**Approval ID**: \`${approval.id}\`\n\n`;
+    body += `---\n\n`;
+    body += `**To approve**, comment:\n`;
+    body += `\`\`\`\n/pr-autopilot approve ${approval.id}\n\`\`\`\n\n`;
+    body += `**To reject**, comment:\n`;
+    body += `\`\`\`\n/pr-autopilot reject ${approval.id} [your reason]\n\`\`\`\n\n`;
+    body += `---\n\n`;
+    body += `<details>\n<summary>📄 View Patch</summary>\n\n\`\`\`diff\n${approval.patch}\n\`\`\`\n\n</details>`;
+
+    await this.octokit.rest.issues.createComment({
+      owner,
+      repo: repoName,
+      issue_number: pr,
+      body
+    });
+    
+    console.log(`[APPROVAL] Posted approval request ${approval.id} to ${repo}#${pr}`);
   }
 
   private async handleProcessJob(job: Job): Promise<JobResult> {
@@ -570,14 +910,55 @@ export class PRAutopilotAgent {
     const needsApprovalComments: ParsedReviewComment[] = [];
 
     try {
-      // 1. Get pending comments
-      const pendingComments = this.stateMachine.getAndClearPendingComments(job.repo, job.pr);
+      // FIRST: Try to get pending comments from state machine
+      let pendingComments = this.stateMachine.getAndClearPendingComments(job.repo, job.pr);
+      
+      // FALLBACK: If state machine has no pending comments, get from CommentTracker
+      // This handles cases where state wasn't properly persisted
+      if (pendingComments.length === 0) {
+        console.log(`[JOB] State machine has no pending comments, checking CommentTracker...`);
+        const trackedComments = this.commentTracker.getPendingComments(job.repo, job.pr);
+        
+        if (trackedComments.length > 0) {
+          console.log(`[JOB] Found ${trackedComments.length} pending comments in CommentTracker`);
+          // Convert TrackedComment to ParsedReviewComment
+          pendingComments = trackedComments.map(tc => ({
+            id: tc.id,
+            file: tc.file,
+            start_line: tc.start_line,
+            end_line: tc.end_line,
+            type: tc.type,
+            content: tc.content,
+            suggestions: tc.suggestions,
+            proposed_fixes: tc.proposed_fixes,
+            agent_prompt: tc.agent_prompt,
+            author: tc.author,
+            bot_name: tc.bot_name,
+            commit_sha: tc.commit_sha || '',
+            diff_hunk: tc.diff_hunk,
+            url: tc.url,
+          }));
+          
+          // Mark these comments as processing in tracker
+          this.commentTracker.markQueued(job.repo, job.pr, pendingComments.map(c => c.id));
+        } else {
+          console.log(`[JOB] No pending comments found in CommentTracker either`);
+        }
+      } else {
+        console.log(`[JOB] Found ${pendingComments.length} pending comments from state machine`);
+      }
+      
       if (pendingComments.length === 0) {
         console.log(`[JOB] No pending comments for ${job.repo}#${job.pr}, skipping`);
         return { success: true };
       }
 
-      console.log(`[JOB] Found ${pendingComments.length} pending comments for ${job.repo}#${job.pr}`);
+      console.log(`[JOB] Processing ${pendingComments.length} pending comments for ${job.repo}#${job.pr}`);
+      
+      // Mark all pending comments as processing in tracker
+      for (const comment of pendingComments) {
+        this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'processing');
+      }
       
       // Check if this is a retry after a failure
       const currentState = this.stateMachine.getState(job.repo, job.pr);
@@ -664,16 +1045,33 @@ export class PRAutopilotAgent {
         // Mark patch generated
         this.commentTracker.updateStatus(job.repo, job.pr, comment.id, 'patch_generated', { patch: patchResult.patch?.substring(0, 500) });
 
-        if (patchResult.requires_approval) {
-          console.log(`[JOB] Patch for ${comment.id} requires approval`);
-          needsApprovalComments.push(comment);
+        // Check if patch requires approval using ApprovalManager
+        const approvalCheck = this.approvalManager.requiresApproval(
+          comment.file,
+          patchResult.patch,
+          comment.content,
+          data.config.autofix.risk_level
+        );
+
+        if (patchResult.requires_approval || approvalCheck.requires) {
+          console.log(`[JOB] Patch for ${comment.id} requires approval: ${approvalCheck.reason || 'manual'}`);
           
-          await this.octokit.rest.issues.createComment({
-            owner,
-            repo,
-            issue_number: job.pr,
-            body: `Generated a patch for comment ${comment.id} on ${comment.file} but it requires manual approval (automation level ${level}).`,
-          });
+          // Add to pending approvals
+          const approval = this.approvalManager.addPendingApproval(
+            job.repo,
+            job.pr,
+            comment.id,
+            comment.file,
+            comment.start_line,
+            comment.end_line,
+            patchResult.patch,
+            approvalCheck.reason || 'manual_flag'
+          );
+
+          needsApprovalComments.push(comment);
+
+          // Post detailed approval request comment
+          await this.postApprovalRequest(job.repo, job.pr, comment, approval, approvalCheck.reason);
           continue;
         }
 

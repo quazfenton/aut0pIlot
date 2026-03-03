@@ -4,9 +4,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Use full git path for Windows
-const GIT_PATH = 'C:\\Program Files\\Git\\cmd\\git.exe';
-
 describe('Diff Validation - Real World Examples', () => {
   let tempDir: string;
   let repoDir: string;
@@ -16,9 +13,9 @@ describe('Diff Validation - Real World Examples', () => {
     repoDir = path.join(tempDir, 'test-repo');
     
     fs.mkdirSync(repoDir, { recursive: true });
-    execSync(`"${GIT_PATH}" init`, { cwd: repoDir, stdio: 'ignore' });
-    execSync(`"${GIT_PATH}" config user.email "test@test.com"`, { cwd: repoDir, stdio: 'ignore' });
-    execSync(`"${GIT_PATH}" config user.name "Test"`, { cwd: repoDir, stdio: 'ignore' });
+    execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+    execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: 'ignore' });
+    execSync('git config user.name "Test"', { cwd: repoDir, stdio: 'ignore' });
   });
 
   afterEach(() => {
@@ -37,9 +34,9 @@ describe('Diff Validation - Real World Examples', () => {
 
   function commitFile(filePath: string, content: string, message: string): string {
     createTestFile(filePath, content);
-    execSync(`"${GIT_PATH}" add .`, { cwd: repoDir, stdio: 'ignore' });
-    execSync(`"${GIT_PATH}" commit -m "${message}"`, { cwd: repoDir, stdio: 'ignore' });
-    return execSync(`"${GIT_PATH}" rev-parse HEAD`, { cwd: repoDir, stdio: 'pipe' }).toString().trim();
+    execSync('git add .', { cwd: repoDir, stdio: 'ignore' });
+    execSync(`git commit -m "${message}"`, { cwd: repoDir, stdio: 'ignore' });
+    return execSync('git rev-parse HEAD', { cwd: repoDir, stdio: 'pipe' }).toString().trim();
   }
 
   function applyPatch(patchContent: string): { success: boolean; output: string; error: string } {
@@ -47,7 +44,7 @@ describe('Diff Validation - Real World Examples', () => {
     fs.writeFileSync(patchFile, patchContent);
 
     try {
-      const result = execSync(`"${GIT_PATH}" apply --check "${patchFile}"`, {
+      const result = execSync(`git apply --check "${patchFile}"`, {
         cwd: repoDir,
         stdio: 'pipe',
         encoding: 'utf8'
@@ -264,8 +261,8 @@ export const Button = () => {
       // Create a simple binary-like file
       const binaryContent = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
       fs.writeFileSync(path.join(repoDir, 'image.png'), binaryContent);
-      execSync(`"${GIT_PATH}" add .`, { cwd: repoDir, stdio: 'ignore' });
-      execSync(`"${GIT_PATH}" commit -m "Initial commit"`, { cwd: repoDir, stdio: 'ignore' });
+      execSync('git add .', { cwd: repoDir, stdio: 'ignore' });
+      execSync('git commit -m "Initial commit"', { cwd: repoDir, stdio: 'ignore' });
 
       const patch = `--- a/image.png
 +++ b/image.png

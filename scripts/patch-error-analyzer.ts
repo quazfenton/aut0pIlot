@@ -343,6 +343,22 @@ Generate the corrected patch now:`;
     filePath: string
   ): DiffHighlight {
     const fileLines = fileContent.split('\n');
+    
+    // Handle null/undefined patch content
+    if (!patchContent) {
+      return {
+        patchFile: filePath,
+        patchStartLine: 0,
+        patchEndLine: 0,
+        fileStartLine: 0,
+        fileEndLine: 0,
+        patchLines: [],
+        fileLines: [],
+        mismatches: [],
+        visualDiff: 'No patch content provided'
+      };
+    }
+    
     const { hunks } = this.parseUnifiedDiff(patchContent);
     
     if (hunks.length === 0) {

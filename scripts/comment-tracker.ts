@@ -228,11 +228,18 @@ export class CommentTracker {
    */
   getPendingComments(repo: string, prNumber: number): TrackedComment[] {
     const file = this.loadPRFile(repo, prNumber);
-    return file.comments.filter(c => 
-      c.status === 'received' || 
-      c.status === 'queued' || 
+    const pending = file.comments.filter(c =>
+      c.status === 'received' ||
+      c.status === 'queued' ||
       c.status === 'processing'
     );
+    
+    console.log(`[TRACKER] getPendingComments: ${repo}#${prNumber}`);
+    console.log(`[TRACKER] Total comments: ${file.comments.length}`);
+    console.log(`[TRACKER] Pending comments: ${pending.length}`);
+    console.log(`[TRACKER] Status breakdown: received=${file.comments.filter(c => c.status === 'received').length}, queued=${file.comments.filter(c => c.status === 'queued').length}, processing=${file.comments.filter(c => c.status === 'processing').length}`);
+    
+    return pending;
   }
 
   /**

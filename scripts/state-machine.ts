@@ -8,6 +8,7 @@ export class PRStateMachine {
 
   constructor(stateDir: string = '/tmp/pr-autopilot-states') {
     this.stateFile = path.join(stateDir, 'states.json');
+    console.log(`[STATE] PRStateMachine initialized with state file: ${this.stateFile}`);
     this.loadStates();
   }
 
@@ -22,9 +23,12 @@ export class PRStateMachine {
         this.states = new Map(
           Object.entries(parsed).map(([key, value]) => [key, value as PRState])
         );
+        console.log(`[STATE] Loaded ${this.states.size} states from ${this.stateFile}`);
+      } else {
+        console.log(`[STATE] No state file found at ${this.stateFile}, starting fresh`);
       }
     } catch (error) {
-      console.error('Error loading states:', error);
+      console.error('[STATE] Error loading states:', error);
       this.states = new Map();
     }
   }
@@ -37,12 +41,14 @@ export class PRStateMachine {
       const dir = path.dirname(this.stateFile);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
+        console.log(`[STATE] Created state directory: ${dir}`);
       }
 
       const data = Object.fromEntries(this.states);
       fs.writeFileSync(this.stateFile, JSON.stringify(data, null, 2));
+      console.log(`[STATE] Saved ${this.states.size} states to ${this.stateFile}`);
     } catch (error) {
-      console.error('Error saving states:', error);
+      console.error('[STATE] Error saving states:', error);
     }
   }
 
@@ -191,13 +197,29 @@ export class PRStateMachine {
   addPendingComments(repo: string, pr: number, comments: ParsedReviewComment[]): void {
     const state = this.getState(repo, pr);
     const pending = [...(state.pending_comments || [])];
+    const processed = new Set(state.comments_processed);
+
+    console.log(`[STATE] addPendingComments: ${repo}#${pr} - Adding ${comments.length} comments`);
+    console.log(`[STATE] Current pending: ${pending.length}, Processed: ${processed.size}`);
+
+    let added = 0;
+    let skipped = 0;
     
     for (const comment of comments) {
-      if (!pending.some(c => c.id === comment.id) && !state.comments_processed.includes(comment.id)) {
+      const alreadyPending = pending.some(c => c.id === comment.id);
+      const alreadyProcessed = processed.has(comment.id);
+      
+      if (!alreadyPending && !alreadyProcessed) {
         pending.push(comment);
+        added++;
+        console.log(`[STATE] Added comment ${comment.id} to pending`);
+      } else {
+        skipped++;
+        console.log(`[STATE] Skipped comment ${comment.id} - pending: ${alreadyPending}, processed: ${alreadyProcessed}`);
       }
     }
-    
+
+    console.log(`[STATE] After add: ${pending.length} pending (${added} added, ${skipped} skipped)`);
     this.updateState(repo, pr, { pending_comments: pending });
   }
 
@@ -207,7 +229,18 @@ export class PRStateMachine {
   getAndClearPendingComments(repo: string, pr: number): ParsedReviewComment[] {
     const state = this.getState(repo, pr);
     const pending = state.pending_comments || [];
+    
+    console.log(`[STATE] getAndClearPendingComments: ${repo}#${pr}`);
+    console.log(`[STATE] Found ${pending.length} pending comments`);
+    console.log(`[STATE] Processed comments: ${state.comments_processed.length}`);
+    
+    if (pending.length > 0) {
+      console.log(`[STATE] Pending comment IDs: ${pending.map(c => c.id).join(', ')}`);
+    }
+    
     this.updateState(repo, pr, { pending_comments: [] });
+    console.log(`[STATE] Cleared pending comments for ${repo}#${pr}`);
+    
     return pending;
   }
   getHelperBranch(repo: string, pr: number): string | undefined {
