@@ -93,6 +93,14 @@ describe('Queue', () => {
   });
 
   describe('processing', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should process jobs', async () => {
       const handler = vi.fn().mockResolvedValue({ success: true });
       queue.registerHandler('test', handler);
@@ -100,8 +108,8 @@ describe('Queue', () => {
       queue.addJob('test', 'owner/repo', 123, {}, 0);
       queue.start(100); // Process every 100ms
 
-      // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Advance timers to trigger processing
+      await vi.advanceTimersByTimeAsync(200);
 
       expect(handler).toHaveBeenCalled();
     });
@@ -110,24 +118,26 @@ describe('Queue', () => {
       const handler = vi.fn()
         .mockRejectedValueOnce(new Error('First failure'))
         .mockResolvedValue({ success: true });
-      
+
       queue.registerHandler('test', handler);
       queue.addJob('test', 'owner/repo', 123, {}, 0);
       queue.start(100);
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Advance timers to allow processing and retry
+      await vi.advanceTimersByTimeAsync(500);
 
       expect(handler).toHaveBeenCalledTimes(2);
     });
 
     it('should stop after max retries', async () => {
       const handler = vi.fn().mockRejectedValue(new Error('Always fails'));
-      
+
       queue.registerHandler('test', handler);
       queue.addJob('test', 'owner/repo', 123, {}, 0);
       queue.start(100);
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Advance timers sufficiently for all retries
+      await vi.advanceTimersByTimeAsync(1000);
 
       // Default max retries is 3
       expect(handler.mock.calls.length).toBeLessThanOrEqual(4);
@@ -135,6 +145,14 @@ describe('Queue', () => {
   });
 
   describe('concurrency', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it('should limit concurrent processing', async () => {
       let activeCount = 0;
       let maxActive = 0;
@@ -155,7 +173,7 @@ describe('Queue', () => {
       }
 
       queue.start(50);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await vi.advanceTimersByTimeAsync(500);
 
       // Max concurrent should be at most 5
       expect(maxActive).toBeLessThanOrEqual(5);

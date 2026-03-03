@@ -116,10 +116,10 @@ export class CommentTracker {
    */
   addComment(repo: string, prNumber: number, comment: ParsedReviewComment): TrackedComment {
     const file = this.loadPRFile(repo, prNumber);
-    
+
     // Check if comment already exists
     const existingIndex = file.comments.findIndex(c => c.id === comment.id);
-    
+
     const trackedComment: TrackedComment = {
       ...comment,
       tracked_at: new Date().toISOString(),
@@ -131,11 +131,16 @@ export class CommentTracker {
     };
 
     if (existingIndex >= 0) {
-      // Preserve existing status history if updating
+      // FIX: Preserve existing metadata (retry/error/patch/commit fields) when updating
       const existing = file.comments[existingIndex];
       trackedComment.status_history = existing.status_history;
       trackedComment.status = existing.status;
       trackedComment.tracked_at = existing.tracked_at;
+      trackedComment.patch = existing.patch;
+      trackedComment.commit_sha = existing.commit_sha;
+      trackedComment.commit_sha_final = existing.commit_sha_final;
+      trackedComment.error = existing.error;
+      trackedComment.retry_count = existing.retry_count;
       file.comments[existingIndex] = trackedComment;
     } else {
       file.comments.push(trackedComment);
@@ -329,12 +334,27 @@ export class CommentTracker {
    */
   listTrackedPRs(): Array<{ repo: string; prNumber: number; file: string }> {
     const files = fs.readdirSync(this.baseDir).filter(f => f.endsWith('.json'));
-    
+
     return files.map(f => {
-      const match = f.match(/^(.+)_pr_(\d+)\.json$/);
+      const match = f.match(/^(.+?)_pr_(\d+)\.json$/);
       if (match) {
+        // FIX: Use smarter reconstruction - only replace FIRST underscore with /
+        // Repos can have underscores, but owner/repo separator is the first underscore before _pr_
+        const repoWithUnderscores = match[1];
+        const firstUnderscoreIdx = repoWithUnderscores.indexOf('_');
+        let repo: string;
+        
+        if (firstUnderscoreIdx > 0) {
+          // Replace only the first underscore with /
+          repo = repoWithUnderscores.substring(0, firstUnderscoreIdx) + '/' + 
+                 repoWithUnderscores.substring(firstUnderscoreIdx + 1);
+        } else {
+          // No underscore found, use as-is (shouldn't happen normally)
+          repo = repoWithUnderscores;
+        }
+        
         return {
-          repo: match[1].replace(/_/g, '/'),
+          repo,
           prNumber: parseInt(match[2], 10),
           file: path.join(this.baseDir, f),
         };

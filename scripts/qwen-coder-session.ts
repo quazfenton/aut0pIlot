@@ -181,15 +181,19 @@ Analyze why this failed and fix it properly.
 
   applyEdits(content: string, edits: Array<{ startLine: number; endLine: number; oldContent: string; newContent: string }>): string {
     const lines = content.split('\n');
-    
-    for (const edit of edits) {
+
+    // FIX: Sort edits by startLine in descending order (bottom-to-top)
+    // This ensures line numbers remain stable as we apply edits
+    const sortedEdits = [...edits].sort((a, b) => b.startLine - a.startLine);
+
+    for (const edit of sortedEdits) {
       const before = lines.slice(0, edit.startLine - 1);
       const after = lines.slice(edit.endLine);
       const newLines = edit.newContent.split('\n');
       lines.length = 0;
       lines.push(...before, ...newLines, ...after);
     }
-    
+
     return lines.join('\n');
   }
 

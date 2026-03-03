@@ -199,7 +199,10 @@ export class PatchErrorAnalyzer {
       const oldStart = parseInt(headerMatch[1], 10);
       const newStart = parseInt(headerMatch[2], 10);
 
-      let fileLineIdx = oldStart - 1;
+      // FIX: Use startLine parameter to compute proper offset
+      // The fileLines array might be a slice starting at startLine
+      const offset = startLine > 1 ? startLine - 1 : 0;
+      let fileLineIdx = oldStart - 1 + offset;
       let patchLineIdx = 0;
 
       for (const patchLine of hunk.lines) {
@@ -207,7 +210,7 @@ export class PatchErrorAnalyzer {
           // Context line - should match file
           const expected = patchLine.substring(1);
           const actual = fileLines[fileLineIdx] || '';
-          
+
           if (expected !== actual) {
             mismatches.push({
               patchLine: patchLineIdx,

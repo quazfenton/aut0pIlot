@@ -548,25 +548,29 @@ export class PRAutopilotAgent {
     if (runnable.length > 0) {
       // Mark runnable comments as queued
       this.commentTracker.markQueued(repofull, pr, runnable.map(c => c.id));
-      
+
       this.stateMachine.addPendingComments(repofull, pr, runnable);
-      
+
       // Check if a job for this PR is already in the queue
       const status = this.queue.getStatus();
       const alreadyQueued = status.jobs.some(j => j.type === 'process_pr' && j.repo === repofull && j.pr === pr);
-      
+
       if (!alreadyQueued) {
         c.comment(`Queueing batch job for ${repofull}#${pr}`);
         this.queue.addJob('process_pr', repofull, pr, { config }, 0);
       } else {
         c.comment(`Batch job already queued for ${repofull}#${pr}, comments added to pending list`);
       }
+      
+      // FIX: Mark non-runnable comments as skipped (even when some are runnable)
+      const nonRunnable = cleanedComments.filter(c => !runnable.some(r => r.id === c.id));
+      for (const comment of nonRunnable) {
+        this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
+      }
     } else {
       // Mark non-runnable comments as skipped
       for (const comment of cleanedComments) {
-        if (!runnable.some(r => r.id === comment.id)) {
-          this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
-        }
+        this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
       }
     }
   }

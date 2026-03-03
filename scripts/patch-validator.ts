@@ -229,21 +229,45 @@ export class PatchValidator {
         }
       }
 
+      // Verify context lines match EXACTLY at the expected positions
+      const hunkStart = parseInt(hunkMatch[1], 10);
+      const contextLinesFromPatch: string[] = [];
+      const removedLines: string[] = [];
+
+      for (const line of patchLines) {
+        if (line.startsWith(' ')) {
+          contextLinesFromPatch.push(line.substring(1));
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          removedLines.push(line.substring(1));
+        }
+      }
+
       // Verify line count matches expected
       if (removedLines.length !== expectedEnd - expectedStart + 1) {
         result.lineCountMatch = false;
       }
 
-      // Verify context lines exist in file
-      for (const ctxLine of contextLines.slice(0, 3)) {
-        if (ctxLine.trim() && !fileContent.includes(ctxLine.trim())) {
+      // FIX: Verify context lines exist at EXACT positions in file, not just anywhere
+      // Check 3 lines before the change
+      for (let i = 0; i < Math.min(3, contextLinesFromPatch.length); i++) {
+        const patchCtxLine = contextLinesFromPatch[i];
+        const fileLineIdx = hunkStart - 1 + i;
+        const fileLine = fileLines[fileLineIdx];
+        
+        if (patchCtxLine && patchCtxLine !== fileLine) {
           result.aboveMatch = false;
           break;
         }
       }
 
-      for (const ctxLine of contextLines.slice(-3)) {
-        if (ctxLine.trim() && !fileContent.includes(ctxLine.trim())) {
+      // Check 3 lines after the change
+      const linesAfterStart = contextLinesFromPatch.length - 3;
+      for (let i = 0; i < Math.min(3, linesAfterStart); i++) {
+        const patchCtxLine = contextLinesFromPatch[linesAfterStart + i];
+        const fileLineIdx = hunkStart - 1 + removedLines.length + i;
+        const fileLine = fileLines[fileLineIdx];
+        
+        if (patchCtxLine && patchCtxLine !== fileLine) {
           result.belowMatch = false;
           break;
         }
@@ -330,7 +354,9 @@ export class PatchValidator {
 
     try {
       // Get the diff of the last commit
-      const diff = execSync(`git diff HEAD~1 -- "${filePath}"`, {
+      // FIX: Sanitize filePath to prevent shell injection
+      const sanitizedPath = filePath.replace(/"/g, '\\"').replace(/\$/g, '').replace(/`/g, '');
+      const diff = execSync(`git diff HEAD~1 -- "${sanitizedPath}"`, {
         cwd: this.repoDir,
         encoding: 'utf-8',
       });
