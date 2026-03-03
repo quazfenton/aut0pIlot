@@ -4,6 +4,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// Use full git path for Windows
+const GIT_PATH = 'C:\\Program Files\\Git\\cmd\\git.exe';
+
 describe('Integration Tests - End-to-End Scenarios', () => {
   let tempDir: string;
   let repoDir: string;
@@ -13,9 +16,9 @@ describe('Integration Tests - End-to-End Scenarios', () => {
     repoDir = path.join(tempDir, 'test-repo');
     
     fs.mkdirSync(repoDir, { recursive: true });
-    execSync('git init', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git config user.name "Test"', { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" init`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" config user.email "test@test.com"`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" config user.name "Test"`, { cwd: repoDir, stdio: 'ignore' });
   });
 
   afterEach(() => {
@@ -212,8 +215,8 @@ export default defineConfig({
     }
 
     // Initial commit
-    execSync('git add .', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git commit -m "Initial project setup"', { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" add .`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" commit -m "Initial project setup"`, { cwd: repoDir, stdio: 'ignore' });
   }
 
   describe('Real PR Scenarios', () => {
@@ -281,7 +284,7 @@ export default defineConfig({
       const patchFile = path.join(tempDir, 'button-refactor.patch');
       fs.writeFileSync(patchFile, patch);
 
-      const result = execSync(`git apply "${patchFile}"`, {
+      const result = execSync(`"${GIT_PATH}" apply "${patchFile}"`, {
         cwd: repoDir,
         stdio: 'pipe'
       });
@@ -405,7 +408,7 @@ export default defineConfig({
       fs.writeFileSync(patchFile, multiFilePatch);
 
       // Apply the patch
-      const result = execSync(`git apply "${patchFile}"`, {
+      const result = execSync(`"${GIT_PATH}" apply "${patchFile}"`, {
         cwd: repoDir,
         stdio: 'pipe'
       });
@@ -494,7 +497,7 @@ export default defineConfig({
       fs.writeFileSync(patchFile, bugFixPatch);
 
       // Apply the patch
-      const result = execSync(`git apply "${patchFile}"`, {
+      const result = execSync(`"${GIT_PATH}" apply "${patchFile}"`, {
         cwd: repoDir,
         stdio: 'pipe'
       });
@@ -651,7 +654,7 @@ export default defineConfig({
       fs.writeFileSync(patchFile, largePatch);
 
       const startTime = Date.now();
-      const result = execSync(`git apply "${patchFile}"`, {
+      const result = execSync(`"${GIT_PATH}" apply "${patchFile}"`, {
         cwd: repoDir,
         stdio: 'pipe'
       });

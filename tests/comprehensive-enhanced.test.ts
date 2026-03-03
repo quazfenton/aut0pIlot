@@ -3,6 +3,9 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// Use full git path for Windows
+const GIT_PATH = 'C:\\Program Files\\Git\\cmd\\git.exe';
 import { RobustPatchGenerator } from '../scripts/robust-patch-generator';
 import { EnhancedQwenSession, EnhancedQwenOptions } from '../scripts/enhanced-qwen-session';
 import { EnhancedLogger } from '../scripts/enhanced-logging';
@@ -155,22 +158,22 @@ describe('Enhanced PR Autopilot - Comprehensive Tests', () => {
     
     // Initialize git repository
     fs.mkdirSync(repoDir, { recursive: true });
-    execSync('git init', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git config user.name "Test"', { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" init`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" config user.email "test@test.com"`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" config user.name "Test"`, { cwd: repoDir, stdio: 'ignore' });
 
     // Create test files
     createTestFiles();
 
     // Initial commit
-    execSync('git add .', { cwd: repoDir, stdio: 'ignore' });
-    execSync('git commit -m "Initial commit"', { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" add .`, { cwd: repoDir, stdio: 'ignore' });
+    execSync(`"${GIT_PATH}" commit -m "Initial commit"`, { cwd: repoDir, stdio: 'ignore' });
 
     // Initialize components
     gitOps = new GitOps('fake-token');
     robustGenerator = new RobustPatchGenerator(gitOps);
     stateManager = new PersistentPatchStateManager();
-    logger = new EnhancedLogger('test-session');
+    logger = new EnhancedLogger({ sessionId: 'test-session' });
 
     // Mock GitOps methods
     vi.spyOn(gitOps, 'clone').mockResolvedValue();
