@@ -449,8 +449,11 @@ export class GitOps {
 
   // Expose workDir for external scripts
   getRepoDir(repo: string): string {
-    const [, repoName] = repo.split('/');
-    return path.join(this.workDir, repoName);
+    const parts = repo.split('/');
+    if (parts.length !== 2 || !parts[1]) {
+      throw new Error(`Invalid repo format: ${repo}. Expected 'owner/repo'`);
+    }
+    return path.join(this.workDir, parts[1]);
   }
 
   cleanup(): void {

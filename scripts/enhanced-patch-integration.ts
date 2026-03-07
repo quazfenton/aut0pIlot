@@ -155,24 +155,25 @@ export class EnhancedPatchIntegration {
 
     } catch (error: any) {
       const duration = Date.now() - startTime;
+      const errorMsg = error instanceof Error ? error.message : String(error);
       
       // Log error
       if (this.logger) {
         this.logger.error('PATCH_GEN', 'Patch generation failed with exception', {
-          error: error.message,
-          stack: error.stack
+          error: errorMsg,
+          stack: error?.stack
         });
       }
 
       // Update state
       if (this.stateManager && stateId) {
-        this.stateManager.updatePatchStatus(stateId, 'FAILED', undefined, error.message);
-        this.stateManager.addPatchAttempt(stateId, 'error', undefined, error.message, undefined, 0, duration);
+        this.stateManager.updatePatchStatus(stateId, 'FAILED', undefined, errorMsg);
+        this.stateManager.addPatchAttempt(stateId, 'error', undefined, errorMsg, undefined, 0, duration);
       }
 
       return {
         success: false,
-        error: error.message,
+        error: errorMsg,
         requires_approval: false
       };
     }
@@ -276,9 +277,10 @@ export class EnhancedPatchIntegration {
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'patch-validate-'));
     const patchFile = path.join(tempDir, 'test.patch');
-    fs.writeFileSync(patchFile, patch);
 
     try {
+      fs.writeFileSync(patchFile, patch);
+
       // Clone and checkout
       await this.iterativeGenerator['gitOps'].clone(request.repo);
       await this.iterativeGenerator['gitOps'].checkout(request.repo, request.commit_sha);
@@ -298,10 +300,20 @@ export class EnhancedPatchIntegration {
     } catch (error) {
       return false;
     } finally {
-      if (fs.existsSync(patchFile)) {
-        fs.unlinkSync(patchFile);
+      try {
+        if (fs.existsSync(patchFile)) {
+          fs.unlinkSync(patchFile);
+        }
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (cleanupError) {
+        if (this.logger) {
+          this.logger.error('CLEANUP', 'Failed to clean up temp files', {
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+          });
+        }
       }
-      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   }
 

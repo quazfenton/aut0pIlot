@@ -1,7 +1,8 @@
 import { PatchRequest, PatchResult } from './types';
 import { GitOps } from './git-ops';
 import { PatchErrorAnalyzer, PatchErrorAnalysis } from './patch-error-analyzer';
-import { QwenFullFileSession, QwenFullFileOptions } from './qwen-full-file-session';
+import { QwenInteractiveSession, QwenInteractiveOptions } from './qwen-interactive-session';
+import { DiffUtils } from './utils/diff-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -21,7 +22,7 @@ const log = {
 
 interface PatchGenerationAttempt {
   round: number;
-  method: 'mechanical' | 'traditional_llm' | 'qwen_full_file' | 'repair';
+  method: 'mechanical' | 'traditional_llm' | 'qwen_interactive' | 'repair';
   patch?: string;
   error?: string;
   validationError?: string;
@@ -31,8 +32,10 @@ interface PatchGenerationAttempt {
 export interface IterativePatchOptions {
   maxRounds?: number;
   maxLlmRetries?: number;
-  useQwenFullFile?: boolean;
+  useQwenInteractive?: boolean;
   timeoutPerRound?: number;
+  enableFormatting?: boolean;
+  useFullWorkspace?: boolean;
 }
 
 export class IterativePatchGenerator {
@@ -55,9 +58,11 @@ export class IterativePatchGenerator {
   ): Promise<PatchResult> {
     const {
       maxRounds = 5,
-      maxLlmRetries = 3,
-      useQwenFullFile = true,
-      timeoutPerRound = 120000
+      maxLlmRetries = 2,
+      useQwenInteractive = true,
+      timeoutPerRound = 120000,
+      enableFormatting = true,
+      useFullWorkspace = true
     } = options;
 
     log.header(`Starting iterative patch generation for ${request.file}`);
@@ -94,16 +99,21 @@ export class IterativePatchGenerator {
           });
 
           if (llmResult.success && llmResult.patch) {
-            // Validate the patch
-            const validation = await this.validatePatch(request, llmResult.patch);
+            // Validate the patch with DiffUtils
+            const validation = DiffUtils.validateDiff(llmResult.patch);
             if (validation.valid) {
-              log.success('Traditional LLM patch validated successfully!');
-              return llmResult;
+              // Also verify with git apply
+              const gitValid = await this.validatePatchWithGit(request, llmResult.patch);
+              if (gitValid) {
+                log.success('Traditional LLM patch validated successfully!');
+                return llmResult;
+              }
+              log.warn('Patch passed structure validation but failed git apply');
             }
 
             // Patch failed validation - analyze errors for next round
-            log.warn(`LLM patch failed validation: ${validation.error}`);
-            lastError = validation.error;
+            log.warn(`LLM patch failed validation: ${validation.errors.join(', ')}`);
+            lastError = validation.errors.join('; ') || llmResult.error;
             validationErrors = validation.warnings;
             lastPatch = llmResult.patch;
 
@@ -112,7 +122,7 @@ export class IterativePatchGenerator {
               round,
               method: 'traditional_llm',
               patch: llmResult.patch,
-              validationError: validation.error,
+              validationError: validation.errors.join('; '),
               duration: Date.now() - roundStart
             });
 
@@ -128,44 +138,48 @@ export class IterativePatchGenerator {
           });
         }
 
-        // Step 3: Try Qwen full-file session (more powerful but slower)
-        if (useQwenFullFile && round > 1) {
-          log.step('Trying Qwen full-file editing session');
-          const qwenResult = await this.tryQwenFullFile(request, {
+        // Step 3: Try Qwen interactive session (more powerful but slower)
+        if (useQwenInteractive && round > 1) {
+          log.step('Trying Qwen interactive editing session');
+          const qwenResult = await this.tryQwenInteractive(request, {
             previousAttempts: this.attemptHistory,
             lastError,
             validationErrors
+          }, {
+            enableFormatting,
+            useFullWorkspace,
+            timeoutMs: timeoutPerRound
           });
 
           if (qwenResult.success && qwenResult.patch) {
-            // Validate the patch
-            const validation = await this.validatePatch(request, qwenResult.patch);
-            if (validation.valid) {
-              log.success('Qwen full-file patch validated successfully!');
-              return qwenResult;
+            log.success('Qwen interactive session succeeded!');
+            if (qwenResult.formattingApplied) {
+              log.detail('Formatting was applied to generated code');
             }
-
-            log.warn(`Qwen patch failed validation: ${validation.error}`);
-            lastError = validation.error;
-            validationErrors = validation.warnings;
-            lastPatch = qwenResult.patch;
-
-            this.recordAttempt({
-              round,
-              method: 'qwen_full_file',
+            if (qwenResult.additionalEdits && qwenResult.additionalEdits.length > 0) {
+              log.detail(`Additional files modified: ${qwenResult.additionalEdits.map(e => e.file).join(', ')}`);
+            }
+            return {
+              success: true,
               patch: qwenResult.patch,
-              validationError: validation.error,
-              duration: Date.now() - roundStart
-            });
-
-            continue;
+              requires_approval: false
+            };
           }
 
-          lastError = qwenResult.error;
+          log.warn(`Qwen interactive session failed: ${qwenResult.error}`);
+          if (qwenResult.validationErrors) {
+            lastError = qwenResult.validationErrors.join('; ');
+            validationErrors = qwenResult.validationErrors;
+          } else {
+            lastError = qwenResult.error;
+          }
+
           this.recordAttempt({
             round,
-            method: 'qwen_full_file',
+            method: 'qwen_interactive',
+            patch: qwenResult.patch,
             error: qwenResult.error,
+            validationError: qwenResult.validationErrors?.join('; '),
             duration: Date.now() - roundStart
           });
         }
@@ -176,14 +190,18 @@ export class IterativePatchGenerator {
           const repairedPatch = await this.repairPatch(request, lastPatch, validationErrors);
 
           if (repairedPatch) {
-            const validation = await this.validatePatch(request, repairedPatch);
+            const validation = DiffUtils.validateDiff(repairedPatch);
             if (validation.valid) {
-              log.success('Final repair succeeded!');
-              return {
-                success: true,
-                patch: repairedPatch,
-                requires_approval: false
-              };
+              const gitValid = await this.validatePatchWithGit(request, repairedPatch);
+              if (gitValid) {
+                log.success('Final repair succeeded!');
+                return {
+                  success: true,
+                  patch: repairedPatch,
+                  requires_approval: false
+                };
+              }
+              log.warn('Repaired patch passed structure validation but failed git apply');
             }
             log.warn('Final repair still failed validation');
           }
@@ -239,7 +257,7 @@ export class IterativePatchGenerator {
     // Try each suggestion
     for (const suggestion of suggestions) {
       try {
-        const patch = this.createMechanicalPatch(request, suggestion.code);
+        const patch = await this.createMechanicalPatch(request, suggestion.code);
         const validation = await this.validatePatch(request, patch);
 
         if (validation.valid) {
@@ -263,18 +281,41 @@ export class IterativePatchGenerator {
   /**
    * Create a mechanical patch from a suggestion
    */
-  private createMechanicalPatch(request: PatchRequest, suggestionCode: string): string {
-    const oldCount = request.end_line - request.start_line + 1;
+  private async createMechanicalPatch(request: PatchRequest, suggestionCode: string): Promise<string> {
     const newLines = suggestionCode.split('\n');
-    const newCount = newLines.length;
+
+    const fileContent = await this.fetchFileContent(request);
+    if (!fileContent) {
+      throw new Error('Could not fetch file content for mechanical patch');
+    }
+
+    const fileLines = fileContent.split('\n').filter(line => line !== undefined);
+    const oldLines = fileLines.slice(request.start_line - 1, request.end_line);
+
+    const maxContext = Math.min(3, request.start_line - 1, fileLines.length - request.end_line);
+    const contextStart = request.start_line - 1 - maxContext;
+    const contextBefore = fileLines.slice(contextStart, request.start_line - 1);
+    const contextAfter = fileLines.slice(request.end_line, request.end_line + maxContext);
+
+    const oldStart = contextStart + 1;
+    const totalOldCount = contextBefore.length + oldLines.length + contextAfter.length;
+    const totalNewCount = contextBefore.length + newLines.length + contextAfter.length;
 
     let patch = `--- a/${request.file}\n`;
     patch += `+++ b/${request.file}\n`;
-    patch += `@@ -${request.start_line},${oldCount} +${request.start_line},${newCount} @@\n`;
+    patch += `@@ -${oldStart},${totalOldCount} +${oldStart},${totalNewCount} @@\n`;
 
-    // Add the new content
+    for (const line of contextBefore) {
+      patch += ` ${line}\n`;
+    }
+    for (const line of oldLines) {
+      patch += `-${line}\n`;
+    }
     for (const line of newLines) {
       patch += `+${line}\n`;
+    }
+    for (const line of contextAfter) {
+      patch += ` ${line}\n`;
     }
 
     return patch;
@@ -318,17 +359,22 @@ export class IterativePatchGenerator {
   }
 
   /**
-   * Try Qwen full-file editing session
+   * Try Qwen interactive editing session
    */
-  private async tryQwenFullFile(
+  private async tryQwenInteractive(
     request: PatchRequest,
     context: {
       previousAttempts: PatchGenerationAttempt[];
       lastError?: string;
       validationErrors?: string[];
-    }
+    },
+    sessionOptions: {
+      enableFormatting?: boolean;
+      useFullWorkspace?: boolean;
+      timeoutMs?: number;
+    } = {}
   ): Promise<PatchResult> {
-    const options: QwenFullFileOptions = {
+    const options: QwenInteractiveOptions = {
       repo: request.repo,
       pr: request.pr,
       commitSha: request.commit_sha,
@@ -336,34 +382,40 @@ export class IterativePatchGenerator {
       startLine: request.start_line,
       endLine: request.end_line,
       reviewComment: request.content,
-      suggestedFixes: request.suggestions?.map(s => s.code) || [],
-      committableSuggestions: request.proposed_fixes || [],
+      suggestions: request.suggestions?.map(s => s.code) || [],
+      proposedFixes: request.proposed_fixes || [],
       agentPrompt: request.agent_prompt,
       gitOps: this.gitOps,
       maxRounds: 3,
-      timeoutMs: 180000
+      timeoutMs: sessionOptions.timeoutMs || 180000,
+      enableFormatting: sessionOptions.enableFormatting ?? true,
+      useFullWorkspace: sessionOptions.useFullWorkspace ?? true
     };
 
-    // Add previous attempts for learning
+    // Build enhanced prompt with previous attempts for learning
     if (context.previousAttempts.length > 0) {
-      options.previousAttempts = context.previousAttempts.map(attempt => ({
-        patch: attempt.patch || '',
-        error: attempt.validationError || attempt.error || '',
-        llm: attempt.method,
-        validationDetails: attempt.validationError
-      }));
+      const failureContext = context.previousAttempts.map((attempt, i) => 
+        `### Attempt ${i + 1} (${attempt.method})\n` +
+        (attempt.patch ? `**Patch**: \`\`\`diff\n${attempt.patch}\n\`\`\`\n\n` : '') +
+        (attempt.error || attempt.validationError ? `**Error**: ${attempt.error || attempt.validationError}\n` : '')
+      ).join('\n');
+
+      options.agentPrompt = `${options.agentPrompt || ''}\n\n## Previous Failed Attempts (learn from these)\n${failureContext}\n\n**Important**: Avoid making the same mistakes. Ensure your patch applies cleanly.`;
     }
 
-    const session = new QwenFullFileSession(options);
+    const session = new QwenInteractiveSession(options);
     const result = await session.execute();
 
     if (result.success) {
-      log.detail(`Qwen full-file session succeeded (${result.patch?.length || 0} chars)`);
+      log.detail(`Qwen interactive succeeded (${result.patch?.length || 0} chars)`);
       if (result.thinking) {
         log.detail(`Thinking: ${result.thinking.substring(0, 300)}...`);
       }
     } else {
-      log.warn(`Qwen full-file session failed: ${result.error}`);
+      log.warn(`Qwen interactive failed: ${result.error}`);
+      if (result.validationErrors && result.validationErrors.length > 0) {
+        log.detail(`Validation errors: ${result.validationErrors.join('; ')}`);
+      }
     }
 
     return {
@@ -595,6 +647,48 @@ export class IterativePatchGenerator {
 
   /**
    * Validate a patch using git apply --check
+   */
+  private async validatePatchWithGit(
+    request: PatchRequest,
+    patch: string
+  ): Promise<boolean> {
+    if (!patch || patch.trim().length === 0) {
+      return false;
+    }
+
+    const patchFile = path.join(this.tempDir, `validate-${Date.now()}.patch`);
+    fs.writeFileSync(patchFile, patch);
+
+    try {
+      // Clone and checkout if needed
+      await this.gitOps.clone(request.repo);
+      await this.gitOps.checkout(request.repo, request.commit_sha);
+
+      try {
+        execSync(`git apply --check "${patchFile}"`, {
+          cwd: this.gitOps.getRepoDir(request.repo),
+          stdio: 'pipe',
+          timeout: 10000
+        });
+        return true;
+      } catch (error: any) {
+        const errorOutput = error.stderr?.toString() || error.stdout?.toString() || error.message;
+        log.detail(`Git apply error: ${errorOutput.substring(0, 300)}`);
+        return false;
+      }
+    } catch (error: any) {
+      log.warn(`Validation setup failed: ${error.message}`);
+      return false;
+    } finally {
+      if (fs.existsSync(patchFile)) {
+        fs.unlinkSync(patchFile);
+      }
+    }
+  }
+
+  /**
+   * Validate a patch using git apply --check (legacy method)
+   * @deprecated Use validatePatchWithGit instead
    */
   private async validatePatch(
     request: PatchRequest,

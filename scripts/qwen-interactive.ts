@@ -294,7 +294,7 @@ export class QwenInteractive {
    */
   private buildPrompt(request: PatchRequest, projectDir: string): string {
     const parts: string[] = [];
-    
+
     parts.push(`# Code Fix Request
 
 ## Target File
@@ -318,7 +318,7 @@ ${s.code}
 3. Generate a unified diff patch that fixes the issue
 4. Ensure the patch applies cleanly
 
-Output your fix as a unified diff patch:`;
+Output your fix as a unified diff patch:`);
 
     return parts.join('\n');
   }

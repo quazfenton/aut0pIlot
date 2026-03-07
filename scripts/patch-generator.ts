@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { IterativePatchGenerator } from './iterative-patch-generator';
 
 function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: number } = {}): string {
   const result = execSync(`git ${args}`, {
@@ -60,9 +61,13 @@ interface FileSnapshot {
 
 export class PatchGenerator {
   private tempDir: string;
+  private iterativeGenerator: IterativePatchGenerator;
 
   constructor() {
     this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-autopilot-'));
+    // Initialize iterative generator with a GitOps instance
+    const { GitOps } = require('./git-ops');
+    this.iterativeGenerator = new IterativePatchGenerator(new GitOps(process.env.GITHUB_TOKEN));
   }
 
   /**
@@ -398,17 +403,35 @@ export class PatchGenerator {
       }
     }
 
-    // If all else fails, try iterative Qwen mode as last resort
-    log.warn(`Standard LLM methods failed, trying iterative Qwen mode...`);
-    const iterativeResult = await this.callQwenIterative(request, fileContent, level, 3, useCliTools);
-    
-    if (iterativeResult.success) {
-      return iterativeResult;
+    // If all else fails, try IterativePatchGenerator as last resort
+    // This is the most robust option with 5 rounds of iterative refinement
+    log.warn(`Standard LLM methods failed, trying IterativePatchGenerator...`);
+    try {
+      const iterativeResult = await this.iterativeGenerator.generatePatchIterative(
+        request,
+        level,
+        {
+          maxRounds: 5,
+          maxLlmRetries: 2,
+          useQwenInteractive: true,
+          enableFormatting: true,
+          useFullWorkspace: true,
+          timeoutPerRound: 180000
+        }
+      );
+
+      if (iterativeResult.success) {
+        log.success(`IterativePatchGenerator succeeded after standard methods failed`);
+        return iterativeResult;
+      }
+      log.warn(`IterativePatchGenerator also failed: ${iterativeResult.error}`);
+    } catch (error: any) {
+      log.error(`IterativePatchGenerator threw error: ${error.message}`);
     }
 
     return {
       success: false,
-      error: iterativeResult.error || 'Could not generate valid patch',
+      error: 'Could not generate valid patch after all methods exhausted',
       requires_approval: true,
     };
   }
@@ -996,14 +1019,29 @@ RULES:
     const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';
     const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE === 'true';
 
-    // If discovery mode is enabled and we have file content, use iterative Qwen directly
+    // If discovery mode is enabled and we have file content, use IterativePatchGenerator
     if (qwenDiscoveryMode && fileContent && patchRequest) {
-      log.step(`QWEN_DISCOVERY_MODE enabled, using iterative Qwen with project context`);
-      const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
-      if (result.success) {
-        return { success: true, output: result.patch };
+      log.step(`QWEN_DISCOVERY_MODE enabled, using IterativePatchGenerator with project context`);
+      try {
+        const result = await this.iterativeGenerator.generatePatchIterative(
+          patchRequest,
+          2,
+          {
+            maxRounds: 5,
+            maxLlmRetries: 2,
+            useQwenInteractive: true,
+            enableFormatting: true,
+            useFullWorkspace: true,
+            timeoutPerRound: 180000
+          }
+        );
+        if (result.success) {
+          return { success: true, output: result.patch };
+        }
+        log.warn(`IterativePatchGenerator failed, falling through to API providers`);
+      } catch (error: any) {
+        log.error(`IterativePatchGenerator threw error: ${error.message}`);
       }
-      log.warn(`Qwen discovery mode failed, falling through to API providers`);
     }
 
     if (useQwenPrimary) {
@@ -1016,9 +1054,25 @@ RULES:
     if (!geminiAvailable && !mistralAvailable) {
       log.warn(`No API keys configured, using local qwen CLI`);
       if (fileContent && patchRequest) {
-        const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
-        if (result.success) {
-          return { success: true, output: result.patch };
+        // Use IterativePatchGenerator for better results
+        try {
+          const result = await this.iterativeGenerator.generatePatchIterative(
+            patchRequest,
+            2,
+            {
+              maxRounds: 3,
+              maxLlmRetries: 2,
+              useQwenInteractive: true,
+              enableFormatting: false,
+              useFullWorkspace: false,
+              timeoutPerRound: 120000
+            }
+          );
+          if (result.success) {
+            return { success: true, output: result.patch };
+          }
+        } catch (error: any) {
+          log.error(`IterativePatchGenerator failed: ${error.message}`);
         }
       }
       return this.callQwen(prompt, patchRequest);

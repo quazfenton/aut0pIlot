@@ -333,6 +333,7 @@ Start by reading the target file and analyzing the situation.
     const appliedFiles: string[] = [];
     const failedFiles: Array<{ file: string; error: string }> = [];
     const warnings: string[] = [];
+    const generatedPatches: string[] = [];
 
     // Find all modified files
     const repoDir = this.options.gitOps.getRepoDir(this.options.repo);
@@ -357,6 +358,7 @@ Start by reading the target file and analyzing the situation.
             const patch = await this.generatePatch(relativePath, originalContent, editedContent);
             if (patch) {
               appliedFiles.push(relativePath);
+              generatedPatches.push(patch);
             }
           } catch (error: any) {
             failedFiles.push({
@@ -368,15 +370,8 @@ Start by reading the target file and analyzing the situation.
       }
     }
 
-    // Generate combined patch
-    let combinedPatch = '';
-    if (editedFiles.length > 0) {
-      combinedPatch = editedFiles.map(file => {
-        const relativePath = file.file;
-        const content = file.content;
-        return `--- a/${relativePath}\n+++ b/${relativePath}\n@@ -1,1 +1,1 @@\n-${this.getFileMarker(relativePath, 'old')}\n+${content}`;
-      }).join('\n\n');
-    }
+    // Generate combined patch from actually generated patches
+    const combinedPatch = generatedPatches.join('\n\n');
 
     return {
       success: appliedFiles.length > 0 && failedFiles.length === 0,
@@ -416,28 +411,83 @@ Start by reading the target file and analyzing the situation.
   }
 
   private async generatePatch(filePath: string, oldContent: string, newContent: string): Promise<string> {
-    // Generate unified diff
+    // FIX: Use git diff to generate proper unified diff instead of synthetic replacement
+    const oldFile = path.join(this.tempDir, `old-${Date.now()}-${path.basename(filePath)}`);
+    const newFile = path.join(this.tempDir, `new-${Date.now()}-${path.basename(filePath)}`);
+
+    try {
+      fs.writeFileSync(oldFile, oldContent);
+      fs.writeFileSync(newFile, newContent);
+
+      // Use git diff --no-index for proper unified diff generation
+      try {
+        const diff = execSync(`git diff --no-index --patch --unified=3 "${oldFile}" "${newFile}"`, {
+          stdio: 'pipe',
+          encoding: 'utf-8'
+        });
+
+        // Fix file paths in diff output (replace temp paths with actual file path)
+        const lines = diff.split('\n');
+        const fixedLines = lines.map((line: string) => {
+          if (line.startsWith('--- ')) return `--- a/${filePath}`;
+          if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
+          return line;
+        });
+
+        const result = fixedLines.join('\n');
+        log.detail(`Generated valid unified diff for ${filePath} (${result.length} chars)`);
+        return result;
+      } catch (error: any) {
+        // git diff returns 1 if there are differences, which is expected
+        if (error.status === 1 && error.stdout) {
+          const diff = error.stdout.toString();
+          const lines = diff.split('\n');
+          const fixedLines = lines.map((line: string) => {
+            if (line.startsWith('--- ')) return `--- a/${filePath}`;
+            if (line.startsWith('+++ ')) return `+++ b/${filePath}`;
+            return line;
+          });
+
+          const result = fixedLines.join('\n');
+          log.detail(`Generated valid unified diff for ${filePath} (${result.length} chars)`);
+          return result;
+        }
+
+        // Fallback to simple diff if git fails
+        log.warn(`git diff failed, using fallback: ${error.message}`);
+        return this.generateSimpleDiff(filePath, oldContent, newContent);
+      }
+    } finally {
+      // Cleanup temp files
+      try {
+        if (fs.existsSync(oldFile)) fs.unlinkSync(oldFile);
+        if (fs.existsSync(newFile)) fs.unlinkSync(newFile);
+      } catch {}
+    }
+  }
+
+  private generateSimpleDiff(filePath: string, oldContent: string, newContent: string): string {
+    // Fallback: simple replacement diff (less reliable but works as fallback)
     const oldLines = oldContent.split('\n');
     const newLines = newContent.split('\n');
-    
-    // Simple diff implementation - can be enhanced with proper diff algorithm
+
     let patch = `--- a/${filePath}\n+++ b/${filePath}\n`;
-    
+
     if (oldContent === newContent) {
       return '';
     }
-    
-    // For now, return a simple replacement diff
+
+    // Simple replacement - not ideal but works as fallback
     patch += `@@ -1,${oldLines.length} +1,${newLines.length} @@\n`;
-    
-    if (oldLines.length > 0) {
-      oldLines.forEach(line => patch += `-${line}\n`);
+
+    for (const line of oldLines) {
+      patch += `-${line}\n`;
     }
-    
-    if (newLines.length > 0) {
-      newLines.forEach(line => patch += `+${line}\n`);
+
+    for (const line of newLines) {
+      patch += `+${line}\n`;
     }
-    
+
     return patch;
   }
 

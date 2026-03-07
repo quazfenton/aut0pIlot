@@ -291,9 +291,11 @@ export class ApprovalManager {
           repo: repoName,
           username
         });
-        
-        const perm = permission.data.user.permissions;
-        return !!(perm?.admin || perm?.maintain || perm?.push);
+
+        // FIX: Use the correct API response field - permission.data.permission or role_name
+        // The API returns: permission (read/write/admin) or role_name (admin/user/none)
+        const permissionLevel = permission.data.permission || permission.data.role_name;
+        return permissionLevel === 'admin' || permissionLevel === 'write';
       }
     } catch (error) {
       // User is not a collaborator

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PatchErrorAnalyzer } from '../scripts/patch-error-analyzer';
-import { IterativePatchGenerator } from '../scripts/iterative-patch-generator';
-import { GitOps } from '../scripts/git-ops';
+import { PatchErrorAnalyzer } from '../../scripts/patch-error-analyzer';
+import { IterativePatchGenerator } from '../../scripts/iterative-patch-generator';
+import { GitOps } from '../../scripts/git-ops';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

@@ -273,20 +273,23 @@ Binary files differ`;
     });
 
     it('should handle large diff patches', () => {
-      const largeContent = Array.from({ length: 1000 }, (_, i) => 
+      const largeContent = Array.from({ length: 1000 }, (_, i) =>
         `export const line${i} = ${i};`
       ).join('\n');
 
       commitFile('src/large.ts', largeContent, 'Large file');
 
-      const modifiedContent = Array.from({ length: 1000 }, (_, i) => 
+      const modifiedContent = Array.from({ length: 1000 }, (_, i) =>
         `export const line${i} = ${i * 2};`
       ).join('\n');
 
+      // FIX: Build proper unified diff with correct line prefixes
+      // Each line needs '+' prefix for additions in the hunk body
+      const prefixedLines = modifiedContent.split('\n').map(line => '+' + line).join('\n');
       const patch = `--- a/src/large.ts
 +++ b/src/large.ts
 @@ -1,1000 +1,1000 @@
-${modifiedContent}`;
+${prefixedLines}`;
 
       const result = applyPatch(patch);
       expect(result.success).toBe(true);

@@ -53,7 +53,11 @@ export class RobustPatchGenerator {
     log.step(`Level: ${level}, CLI Tools: ${useCliTools}`);
     
     const requestId = `${request.repo}-${request.pr}-${request.file}-${request.start_line}-${request.end_line}`;
+    // FIX: Initialize attempt history in map to avoid stale state within same run
     const previousAttempts = this.attemptHistory.get(requestId) || [];
+    if (!this.attemptHistory.has(requestId)) {
+      this.attemptHistory.set(requestId, previousAttempts);
+    }
 
     try {
       // Step 1: Try mechanical extraction first
@@ -96,10 +100,20 @@ export class RobustPatchGenerator {
 
   private async tryMechanicalExtraction(request: PatchRequest): Promise<PatchResult> {
     log.step('Trying mechanical extraction');
-    
+
     // Extract suggestions from content
-    const suggestions = this.extractSuggestions(request.content);
-    if (suggestions.length === 0) {
+    const suggestions: string[] = this.extractSuggestions(request.content);
+    
+    // Also check request.suggestions if available (array of ExtractedSuggestion objects)
+    if (request.suggestions && Array.isArray(request.suggestions)) {
+      for (const suggestion of request.suggestions) {
+        if (suggestion.code && !suggestions.includes(suggestion.code)) {
+          suggestions.push(suggestion.code);
+        }
+      }
+    }
+    
+    if (!Array.isArray(suggestions) || suggestions.length === 0) {
       log.detail('No mechanical suggestions found');
       return { success: false, error: 'No mechanical suggestions found', requires_approval: false };
     }
@@ -108,7 +122,7 @@ export class RobustPatchGenerator {
     for (const suggestion of suggestions) {
       const patch = this.createMechanicalPatch(request, suggestion);
       const validation = await this.validatePatch(request, patch);
-      
+
       if (validation.isValid) {
         log.success('Mechanical patch validation passed');
         return { success: true, patch, requires_approval: false };
@@ -258,6 +272,11 @@ export class RobustPatchGenerator {
       return report;
     }
 
+    // Ensure temp directory exists (may have been cleaned up from previous run)
+    if (!fs.existsSync(this.tempDir)) {
+      this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'robust-patch-'));
+    }
+
     // Write patch to temporary file
     const patchFile = path.join(this.tempDir, `validation-${Date.now()}.patch`);
     fs.writeFileSync(patchFile, patch);
@@ -360,12 +379,20 @@ export class RobustPatchGenerator {
   }
 
   private repairFilePaths(patch: string): string {
-    // Fix common file path issues
+    // FIX: Actually repair common file path issues instead of no-op replacements
     return patch
-      .replace(/^--- a\//gm, '--- a/')
-      .replace(/^\+\+\+ b\//gm, '+++ b/')
-      .replace(/^--- a\//gm, '--- a/')
-      .replace(/^\+\+\+ b\//gm, '+++ b/');
+      // Remove any leading/trailing whitespace from file paths
+      .replace(/^--- a\/\s+/gm, '--- a/')
+      .replace(/^\+\+\+ b\/\s+/gm, '+++ b/')
+      // Fix missing 'a/' or 'b/' prefix
+      .replace(/^--- ([^a\/])/gm, '--- a/$1')
+      .replace(/^\+\+\+ ([^b\/])/gm, '+++ b/$1')
+      // Fix double slashes in paths
+      .replace(/^--- a\/\//gm, '--- a/')
+      .replace(/^\+\+\+ b\/\//gm, '+++ b/')
+      // Normalize backslashes to forward slashes (Windows paths)
+      .replace(/^--- a\/(.*)\\(.*)$/gm, '--- a/$1/$2')
+      .replace(/^\+\+\+ b\/(.*)\\(.*)$/gm, '+++ b/$1/$2');
   }
 
   private repairPatchStructure(patch: string): string {

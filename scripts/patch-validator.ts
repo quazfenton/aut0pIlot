@@ -197,12 +197,13 @@ export class PatchValidator {
     aboveMatch: boolean;
     belowMatch: boolean;
     lineCountMatch: boolean;
+    fileExists: boolean;
   } {
-    const result = { aboveMatch: true, belowMatch: true, lineCountMatch: true };
+    const result = { aboveMatch: true, belowMatch: true, lineCountMatch: true, fileExists: true };
     
     const fullPath = path.join(this.repoDir, filePath);
     if (!fs.existsSync(fullPath)) {
-      return result; // Can't verify if file doesn't exist
+      return { aboveMatch: false, belowMatch: false, lineCountMatch: false, fileExists: false };
     }
 
     try {
@@ -283,8 +284,10 @@ export class PatchValidator {
    * Run git apply --check to verify patch applies cleanly
    */
   private gitApplyCheck(patch: string): { valid: boolean; error?: string } {
+    let tmpDir = null;
     try {
-      const patchFile = `/tmp/patch-check-${Date.now()}.patch`;
+      tmpDir = fs.mkdtempSync(path.join('/tmp', 'patch-check-'));
+      const patchFile = path.join(tmpDir, 'patch.patch');
       fs.writeFileSync(patchFile, patch);
 
       try {
@@ -309,13 +312,13 @@ export class PatchValidator {
         }
         
         return { valid: false, error: stderr || 'Unknown git apply error' };
-      } finally {
-        if (fs.existsSync(patchFile)) {
-          fs.unlinkSync(patchFile);
-        }
       }
     } catch (error: any) {
       return { valid: false, error: error.message };
+    } finally {
+      if (tmpDir && fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     }
   }
 

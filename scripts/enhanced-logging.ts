@@ -152,11 +152,15 @@ export class EnhancedLogger {
     };
 
     this.logs.push(entry);
-    this.saveLog(entry);
+
+    // FIX: Respect saveToFile setting
+    if (this.saveToFile) {
+      this.saveLog(entry);
+    }
 
     // Console output with colors
     const color = success ? '\x1b[32m' : '\x1b[31m';
-    console.log(`${color}[PATCH]\x1b[0m ${repo}#${pr}:${file} - ${message} (Attempt ${attempt})`);
+    console.log(`${color}[PATCH]\x1b[0m ${repo}#${pr}:${file} - ${success ? 'succeeded' : 'failed'} (Attempt ${attempt})`);
   }
 
   /**
@@ -187,7 +191,11 @@ export class EnhancedLogger {
     };
 
     this.logs.push(entry);
-    this.saveLog(entry);
+
+    // FIX: Respect saveToFile setting
+    if (this.saveToFile) {
+      this.saveLog(entry);
+    }
 
     // Console output
     console.log(`\x1b[31m[VALIDATION ERROR]\x1b[0m ${repo}#${pr}:${file}`);
@@ -306,6 +314,62 @@ export class EnhancedLogger {
    */
   getCurrentRound(): number {
     return this.currentRound;
+  }
+
+  /**
+   * Get summary of logs
+   */
+  getSummary(): {
+    totalLogs: number;
+    byLevel: Record<string, number>;
+    byCategory: Record<string, number>;
+  } {
+    const byLevel: Record<string, number> = {};
+    const byCategory: Record<string, number> = {};
+
+    for (const log of this.logs) {
+      byLevel[log.level] = (byLevel[log.level] || 0) + 1;
+      byCategory[log.category] = (byCategory[log.category] || 0) + 1;
+    }
+
+    return {
+      totalLogs: this.logs.length,
+      byLevel,
+      byCategory
+    };
+  }
+
+  /**
+   * Generate diff quality report
+   */
+  generateDiffReport(
+    patch: string,
+    errors: string[] = [],
+    warnings: string[] = []
+  ): {
+    isValid: boolean;
+    validationErrors: string[];
+    appliedChanges: string[];
+    stats: { linesAdded: number; linesRemoved: number }
+  } {
+    const linesAdded = (patch.match(/^\+/gm) || []).length;
+    const linesRemoved = (patch.match(/^-/gm) || []).length;
+
+    return {
+      isValid: errors.length === 0,
+      validationErrors: errors,
+      appliedChanges: warnings,
+      stats: { linesAdded, linesRemoved }
+    };
+  }
+
+  /**
+   * Export logs to file
+   */
+  exportLogs(): string {
+    const exportFile = path.join(this.logDir, `session-${this.sessionId}-export.json`);
+    fs.writeFileSync(exportFile, JSON.stringify(this.logs, null, 2));
+    return exportFile;
   }
 
   /**

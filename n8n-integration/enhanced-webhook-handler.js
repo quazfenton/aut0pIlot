@@ -80,7 +80,13 @@ function verifySignature(payload, signature, secret) {
  */
 function parseWebhookData(inputData) {
     try {
+        // Preserve original raw body before parsing for signature verification
+        const originalRawBody = typeof inputData === 'string' ? inputData : JSON.stringify(inputData);
+        
         const webhookData = JSON.parse(inputData);
+        
+        // Extract rawBody if already present (from n8n workflow that captured it)
+        const existingRawBody = webhookData.rawBody;
         
         // Extract payload and headers from various n8n formats
         let payload = webhookData.body || webhookData.payload || webhookData;
@@ -109,8 +115,10 @@ function parseWebhookData(inputData) {
                          headers['x-hub-signature-256'] || 
                          webhookData.signature;
 
+        const rawBody = existingRawBody || originalRawBody || JSON.stringify(payload);
+
         logInfo(`Parsed webhook: ${eventName} (Delivery: ${deliveryId})`);
-        log(`Payload size: ${JSON.stringify(payload).length} bytes`);
+        log(`Payload size: ${rawBody.length} bytes`);
         log(`Signature present: ${!!signature}`);
 
         return {
@@ -119,7 +127,7 @@ function parseWebhookData(inputData) {
             deliveryId,
             eventName,
             signature,
-            rawBody: JSON.stringify(payload)
+            rawBody
         };
     } catch (error) {
         logError(`Failed to parse webhook data: ${error.message}`);

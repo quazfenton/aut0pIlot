@@ -159,7 +159,7 @@ export class CommentTracker {
 
     for (const comment of comments) {
       const existingIndex = file.comments.findIndex(c => c.id === comment.id);
-      
+
       const trackedComment: TrackedComment = {
         ...comment,
         tracked_at: new Date().toISOString(),
@@ -171,10 +171,17 @@ export class CommentTracker {
       };
 
       if (existingIndex >= 0) {
+        // FIX: Preserve existing metadata (retry/error/patch/commit fields) when updating
+        // Mirrors the logic in addComment to avoid losing processing history
         const existing = file.comments[existingIndex];
         trackedComment.status_history = existing.status_history;
         trackedComment.status = existing.status;
         trackedComment.tracked_at = existing.tracked_at;
+        trackedComment.patch = existing.patch;
+        trackedComment.commit_sha = existing.commit_sha;
+        trackedComment.commit_sha_final = existing.commit_sha_final;
+        trackedComment.error = existing.error;
+        trackedComment.retry_count = existing.retry_count;
         file.comments[existingIndex] = trackedComment;
       } else {
         file.comments.push(trackedComment);

@@ -231,14 +231,16 @@ function runVisualDiffTest(scenario) {
   console.log(`  Suggestions: ${analysis.suggestions.length}`);
   
   // Validate
-  const passed = highlight.mismatches.length === scenario.expectedMismatches || 
-                 (scenario.expectedMismatches === 0 && analysis.errorType === 'unknown');
-  
+  // FIX: Require both conditions when expecting 0 mismatches to avoid false positives
+  const passed = scenario.expectedMismatches === 0
+    ? (highlight.mismatches.length === 0 && analysis.errorType === 'unknown')
+    : (highlight.mismatches.length === scenario.expectedMismatches);
+
   if (passed) {
     log.success(`✓ Test PASSED: ${scenario.name}`);
   } else {
     log.warn(`⚠ Test MAY NEED REVIEW: ${scenario.name}`);
-    log.info(`  Mismatches: ${highlight.mismatches.length}, Expected: ${scenario.expectedMismatches}`);
+    log.info(`  Mismatches: ${highlight.mismatches.length}, Expected: ${scenario.expectedMismatches}, ErrorType: ${analysis.errorType}`);
   }
   
   console.log('='.repeat(70) + '\n');

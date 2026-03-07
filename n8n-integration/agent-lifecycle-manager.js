@@ -120,25 +120,34 @@ async function acquireLock() {
                 await fs.writeFile(LOCK_FILE, `${process.pid}`, { flag: 'wx' });
                 return true;
             }
-            
-            // Check if process is still alive
+
+            // FIX: Check lock age FIRST to detect stale locks, regardless of PID status
+            // This prevents race condition where multiple managers see a dead PID and all try to acquire
             try {
-                process.kill(existingPid, 0);
                 const stat = await fs.stat(LOCK_FILE);
                 const ageMs = Date.now() - stat.mtimeMs;
-                
-                // Force takeover if lock is stale (> 5 minutes)
-                if (ageMs > 5 * 60 * 1000) {
-                    log.warn(`Lock held by stale PID ${existingPid}, forcing takeover`);
+                const isStale = ageMs > 5 * 60 * 1000; // 5 minutes
+
+                if (isStale) {
+                    log.warn(`Lock held by stale PID ${existingPid} (${Math.round(ageMs / 1000)}s old), forcing takeover`);
                     await fs.rm(LOCK_FILE, { force: true });
                     await fs.writeFile(LOCK_FILE, `${process.pid}`, { flag: 'wx' });
                     return true;
                 }
-                
+            } catch (statError) {
+                // Lock file doesn't exist or other error - proceed to cleanup and retry
+                log.debug(`Lock stat failed: ${statError.message}`);
+            }
+
+            // Check if process is still alive (only if lock is not stale)
+            try {
+                process.kill(existingPid, 0);
+                // Process is alive - lock is not stale, don't steal
                 log.debug('Manager already running');
                 return false;
             } catch {
-                // Process is dead, remove lock
+                // Process is dead and lock is not stale - safe to take over
+                log.debug(`Previous manager (PID ${existingPid}) exited, acquiring lock`);
                 await fs.rm(LOCK_FILE, { force: true });
                 await fs.writeFile(LOCK_FILE, `${process.pid}`, { flag: 'wx' });
                 return true;

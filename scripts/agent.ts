@@ -702,13 +702,15 @@ export class PRAutopilotAgent {
           author: user,
           commit_sha: ''
         };
-        
+
+        // FIX: Clear the processed flag before re-adding, otherwise addPendingComments will skip it
+        this.stateMachine.unmarkCommentProcessed(repo, pr, comment.id);
         this.stateMachine.addPendingComments(repo, pr, [comment]);
-        
+
         // Queue a job to process the approved patch
         const config = await this.configLoader.loadConfig(owner, repoName);
         this.queue.addJob('process_pr', repo, pr, { config }, 10);
-        
+
         c.success(`Approval ${approvalId} processed, patch will be applied`);
       } else {
         c.success(`Rejection ${approvalId} processed, patch discarded`);

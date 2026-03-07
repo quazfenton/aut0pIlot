@@ -46,7 +46,10 @@ export class PendingPatchManager {
   }
 
   save(patches: PendingPatch[]): void {
-    fs.writeFileSync(this.pendingFile, JSON.stringify(patches, null, 2));
+    const tempFile = this.pendingFile + '.tmp';
+    const data = JSON.stringify(patches, null, 2);
+    fs.writeFileSync(tempFile, data);
+    fs.renameSync(tempFile, this.pendingFile);
   }
 
   add(patch: Omit<PendingPatch, 'id' | 'generatedAt' | 'status'>): PendingPatch {
