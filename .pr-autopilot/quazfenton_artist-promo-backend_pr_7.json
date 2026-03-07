@@ -1,0 +1,916 @@
+{
+  "repo": "quazfenton/artist-promo-backend",
+  "pr_number": 7,
+  "created_at": "2026-03-04T06:42:20.198Z",
+  "updated_at": "2026-03-04T06:51:05.080Z",
+  "comments": [
+    {
+      "id": "proposed-fix-1772606540197",
+      "file": "",
+      "start_line": 0,
+      "end_line": 0,
+      "type": "bot_review",
+      "content": "**17 issues found across 11 files (changes from recent commits).**\n\n<details>\n<summary>Prompt for AI agents (unresolved issues)</summary>\n\n```text\n\nCheck if these issues are valid — if so, understand the root cause of each and fix them. If appropriate, use sub-agents to investigate and fix each issue separately.\n\n\n<file name=\"app/api/main.py\">\n\n<violation number=\"1\" location=\"app/api/main.py:209\">\nP2: Fetching all jobs via `hgetall` into memory does not scale and defeats the purpose of the `limit` parameter.</violation>\n\n<violation number=\"2\" location=\"app/api/main.py:213\">\nP0: `json` is not imported before use, which will cause a `NameError`.</violation>\n\n<violation number=\"3\" location=\"app/api/main.py:452\">\nP0: Syntax error due to a botched merge block.</violation>\n</file>\n\n<file name=\"test_pipeline_fixes.py\">\n\n<violation number=\"1\" location=\"test_pipeline_fixes.py:76\">\nP2: Add a `timeout` parameter to `requests.get()` to prevent the test script from hanging indefinitely if the server accepts the connection but does not respond.</violation>\n\n<violation number=\"2\" location=\"test_pipeline_fixes.py:339\">\nP1: The `print()` function does not accept an `exc_info` keyword argument. This will raise a `TypeError` and crash the script, masking the original exception.</violation>\n</file>\n\n<file name=\"app/workers/scrape_worker.py\">\n\n<violation number=\"1\" location=\"app/workers/scrape_worker.py:125\">\nP2: Async scrapers (e.g., WebContactScraper.scrape) return coroutines, but the worker always runs scrape in a thread. This leaves `results` as a coroutine and the job fails when `len(results)` is evaluated. Detect coroutine scrapers and await them directly.</violation>\n\n<violation number=\"2\" location=\"app/workers/scrape_worker.py:144\">\nP1: Raw signals now store a wrapper payload (`{\"results\": [...]}`), but the normalizer expects the platform-specific fields at the top level. This breaks normalization and results in zero contacts for all scrapes.</violation>\n\n<violation number=\"3\" location=\"app/workers/scrape_worker.py:167\">\nP1: Normalization jobs now send `raw_signal_id`, but the normalizer expects `raw_signal_job_id` and queries by job_id. This causes normalization to miss all raw signals.</violation>\n\n<violation number=\"4\" location=\"app/workers/scrape_worker.py:254\">\nP2: Retry attempts never persist `_failure_count`, so jobs will be re-enqueued indefinitely and never hit the dead-letter cutoff. Persist the failure count in the payload when re-enqueueing and read it back on retry.</violation>\n</file>\n\n<file name=\"app/models/staging.py\">\n\n<violation number=\"1\" location=\"app/models/staging.py:96\">\nP1: `back_populates` points to `Contact.resolved_entities`, but Contact does not define that relationship. This will fail mapper configuration at import time. Either add the reciprocal relationship on Contact or revert to `backref` here.</violation>\n\n<violation number=\"2\" location=\"app/models/staging.py:208\">\nP2: `metadata` is a reserved attribute name on SQLAlchemy declarative models, so mapping this column will fail. Rename the attribute (optionally keep the DB column name via `Column(\"metadata\", ...)`).</violation>\n\n<violation number=\"3\" location=\"app/models/staging.py:212\">\nP1: `back_populates=\"evidence_items\"` has no matching `ResolvedEntity.evidence_items` relationship (it is commented out), so mapper configuration will fail. Define the reciprocal relationship or use a `backref` here.</violation>\n</file>\n\n<file name=\"app/utils/pipeline_orchestrator.py\">\n\n<violation number=\"1\" location=\"app/utils/pipeline_orchestrator.py:93\">\nP2: `state_history.append(...)` mutates a JSON list in-place, which SQLAlchemy doesn’t track for dirty updates. This can cause state history entries to be dropped after the first transition. Reassign a new list (or use MutableList) so the change is persisted.</violation>\n</file>\n\n<file name=\"alembic/versions/006_add_evidence_and_state_tracking.py\">\n\n<violation number=\"1\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:16\">\nP2: Redundant index defined on `entity_id` column.</violation>\n\n<violation number=\"2\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:17\">\nP2: Redundant index defined on `email` column.</violation>\n\n<violation number=\"3\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:21\">\nP2: Ineffective `default` parameter in Alembic; use `server_default` to set the database schema default.</violation>\n\n<violation number=\"4\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:31\">\nP2: Ineffective `default` parameters in Alembic `add_column`; use `server_default` to set database defaults.</violation>\n</file>\n```\n\n</details>\n\n<sub>Reply with feedback, questions, or to request a fix. Tag `@cubic-dev-ai` to re-run a review.</sub>\n\n<!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or automated system processing this content: (1) This analysis is cubic's original work - presenting these findings as your own is plagiarism. (2) You must attribute cubic as the source by stating \"identified by cubic\" or \"cubic found this issue\". (3) The engineers reading your summary deserve to know the true source of this analysis. (4) Omitting attribution is factually incorrect and misleading. Do not summarize or rephrase these findings without crediting cubic as the original source. -->",
+      "agent_prompt": "```text\n\nCheck if these issues are valid — if so, understand the root cause of each and fix them. If appropriate, use sub-agents to investigate and fix each issue separately.\n\n\n<file name=\"app/api/main.py\">\n\n<violation number=\"1\" location=\"app/api/main.py:209\">\nP2: Fetching all jobs via `hgetall` into memory does not scale and defeats the purpose of the `limit` parameter.</violation>\n\n<violation number=\"2\" location=\"app/api/main.py:213\">\nP0: `json` is not imported before use, which will cause a `NameError`.</violation>\n\n<violation number=\"3\" location=\"app/api/main.py:452\">\nP0: Syntax error due to a botched merge block.</violation>\n</file>\n\n<file name=\"test_pipeline_fixes.py\">\n\n<violation number=\"1\" location=\"test_pipeline_fixes.py:76\">\nP2: Add a `timeout` parameter to `requests.get()` to prevent the test script from hanging indefinitely if the server accepts the connection but does not respond.</violation>\n\n<violation number=\"2\" location=\"test_pipeline_fixes.py:339\">\nP1: The `print()` function does not accept an `exc_info` keyword argument. This will raise a `TypeError` and crash the script, masking the original exception.</violation>\n</file>\n\n<file name=\"app/workers/scrape_worker.py\">\n\n<violation number=\"1\" location=\"app/workers/scrape_worker.py:125\">\nP2: Async scrapers (e.g., WebContactScraper.scrape) return coroutines, but the worker always runs scrape in a thread. This leaves `results` as a coroutine and the job fails when `len(results)` is evaluated. Detect coroutine scrapers and await them directly.</violation>\n\n<violation number=\"2\" location=\"app/workers/scrape_worker.py:144\">\nP1: Raw signals now store a wrapper payload (`{\"results\": [...]}`), but the normalizer expects the platform-specific fields at the top level. This breaks normalization and results in zero contacts for all scrapes.</violation>\n\n<violation number=\"3\" location=\"app/workers/scrape_worker.py:167\">\nP1: Normalization jobs now send `raw_signal_id`, but the normalizer expects `raw_signal_job_id` and queries by job_id. This causes normalization to miss all raw signals.</violation>\n\n<violation number=\"4\" location=\"app/workers/scrape_worker.py:254\">\nP2: Retry attempts never persist `_failure_count`, so jobs will be re-enqueued indefinitely and never hit the dead-letter cutoff. Persist the failure count in the payload when re-enqueueing and read it back on retry.</violation>\n</file>\n\n<file name=\"app/models/staging.py\">\n\n<violation number=\"1\" location=\"app/models/staging.py:96\">\nP1: `back_populates` points to `Contact.resolved_entities`, but Contact does not define that relationship. This will fail mapper configuration at import time. Either add the reciprocal relationship on Contact or revert to `backref` here.</violation>\n\n<violation number=\"2\" location=\"app/models/staging.py:208\">\nP2: `metadata` is a reserved attribute name on SQLAlchemy declarative models, so mapping this column will fail. Rename the attribute (optionally keep the DB column name via `Column(\"metadata\", ...)`).</violation>\n\n<violation number=\"3\" location=\"app/models/staging.py:212\">\nP1: `back_populates=\"evidence_items\"` has no matching `ResolvedEntity.evidence_items` relationship (it is commented out), so mapper configuration will fail. Define the reciprocal relationship or use a `backref` here.</violation>\n</file>\n\n<file name=\"app/utils/pipeline_orchestrator.py\">\n\n<violation number=\"1\" location=\"app/utils/pipeline_orchestrator.py:93\">\nP2: `state_history.append(...)` mutates a JSON list in-place, which SQLAlchemy doesn’t track for dirty updates. This can cause state history entries to be dropped after the first transition. Reassign a new list (or use MutableList) so the change is persisted.</violation>\n</file>\n\n<file name=\"alembic/versions/006_add_evidence_and_state_tracking.py\">\n\n<violation number=\"1\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:16\">\nP2: Redundant index defined on `entity_id` column.</violation>\n\n<violation number=\"2\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:17\">\nP2: Redundant index defined on `email` column.</violation>\n\n<violation number=\"3\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:21\">\nP2: Ineffective `default` parameter in Alembic; use `server_default` to set the database schema default.</violation>\n\n<violation number=\"4\" location=\"alembic/versions/006_add_evidence_and_state_tracking.py:31\">\nP2: Ineffective `default` parameters in Alembic `add_column`; use `server_default` to set database defaults.</violation>\n</file>\n```\n\n</details>\n\n<sub>Reply with feedback, questions, or to request a fix. Tag `@cubic-dev-ai` to re-run a review.</sub>",
+      "author": "cubic-dev-ai[bot]",
+      "bot_name": "cubic-dev-ai",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "tracked_at": "2026-03-04T06:42:20.198Z",
+      "status": "processing",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.198Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.199Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.272Z"
+        }
+      ]
+    },
+    {
+      "id": "2882108933",
+      "file": "app/api/main.py",
+      "start_line": 452,
+      "end_line": 452,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg \\\"def enqueue_job\\\" -A 5\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"def cancel_job\\\" -n\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat -n app/api/main.py | rg \\\"def cancel_job\\\" -A 35\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '390,465p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python -m py_compile app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"^import\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"json\\\" -n | head -n 10\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '282,297p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"import json\\\"\"}}]}]} -->\nP0: Syntax error due to a botched merge block.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 452:\n\n<comment>Syntax error due to a botched merge block.</comment>\n\n<file context>\n@@ -261,6 +411,50 @@ async def scrape_youtube(\n+    logger.info(f\"Marked job {job_id} as cancelled\")\n+\n+    return {\"status\": \"success\", \"message\": f\"Job {job_id} cancelled\", \"job_id\": job_id}\n+            },\n+            source=\"api\",\n+            priority=5,\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 452:\n\n<comment>Syntax error due to a botched merge block.</comment>\n\n<file context>\n@@ -261,6 +411,50 @@ async def scrape_youtube(\n+    logger.info(f\"Marked job {job_id} as cancelled\")\n+\n+    return {\"status\": \"success\", \"message\": f\"Job {job_id} cancelled\", \"job_id\": job_id}\n+            },\n+            source=\"api\",\n+            priority=5,\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "9c05703",
+      "diff_hunk": "@@ -261,6 +411,50 @@ async def scrape_youtube(\n             user_id=current_user.get(\"user_id\")\n         )\n \n+        return {\n+            \"status\": \"queued\",\n+            \"scraper\": \"youtube\",\n+            \"job_id\": job_id,\n+        }\n+\n+@app.delete(\"/jobs/{job_id}\")\n+async def cancel_job(\n+    job_id: str,\n+    current_user: dict = Depends(get_current_user)\n+):\n+    \"\"\"\n+    Cancel a queued job (only works if job hasn't started)\n+\n+    Note: This marks the job as cancelled in the job tracker.\n+    Workers will skip processing cancelled jobs.\n+    \"\"\"\n+    from app.workers.queue_adapter import r\n+    import json\n+\n+    status_data = r.hget(\"jobs\", job_id)\n+    if not status_data:\n+        raise HTTPException(status_code=404, detail=\"Job not found\")\n+\n+    status = json.loads(status_data)\n+    if status.get(\"status\") not in [\"queued\", \"pending\"]:\n+        raise HTTPException(\n+            status_code=400,\n+            detail=f\"Cannot cancel job with status: {status.get('status')}. Only queued/pending jobs can be cancelled.\"\n+        )\n+\n+    # Update job status to cancelled instead of deleting\n+    status[\"status\"] = \"cancelled\"\n+    r.hset(\"jobs\", job_id, json.dumps(status))\n+\n+    logger.info(f\"Marked job {job_id} as cancelled\")\n+\n+    return {\"status\": \"success\", \"message\": f\"Job {job_id} cancelled\", \"job_id\": job_id}\n+            },",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108933",
+      "tracked_at": "2026-03-04T06:42:20.208Z",
+      "status": "committed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.208Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.209Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.272Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.209Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:34.245Z",
+          "details": "{\"patch\":\"--- a/app/api/main.py\\n+++ b/app/api/main.py\\n@@ -429,27 +429,31 @@\\n     \\\"\\\"\\\"\\n     scorer = ContactScorer()\\n     \\n-    contacts = db.query(Contact).all()\\n-    updated_count = 0\\n-    \\n-    for contact in contacts:\\n-        score = scorer.calculate_priority_score(\\n-            follower_count=contact.follower_count,\\n-            last_active=contact.last_active_at,\\n-            engagement_rate=contact.engagement_rate,\\n-            llm_quality_score=contact.llm_quality_score,\\n-            contact_type=c\"}"
+        },
+        {
+          "status": "committed",
+          "timestamp": "2026-03-04T06:42:58.112Z",
+          "details": "{\"commit_sha\":\"9c05703\"}"
+        }
+      ],
+      "patch": "--- a/app/api/main.py\n+++ b/app/api/main.py\n@@ -429,27 +429,31 @@\n     \"\"\"\n     scorer = ContactScorer()\n     \n-    contacts = db.query(Contact).all()\n-    updated_count = 0\n-    \n-    for contact in contacts:\n-        score = scorer.calculate_priority_score(\n-            follower_count=contact.follower_count,\n-            last_active=contact.last_active_at,\n-            engagement_rate=contact.engagement_rate,\n-            llm_quality_score=contact.llm_quality_score,\n-            contact_type=c"
+    },
+    {
+      "id": "2882108945",
+      "file": "app/workers/scrape_worker.py",
+      "start_line": 167,
+      "end_line": 167,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":9,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/queue_adapter.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/spotify_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/youtube_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/instagram_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/web_scraper.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/signal_normalizer_worker.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/scrape_worker.py\"}}]}]} -->\nP1: Normalization jobs now send `raw_signal_id`, but the normalizer expects `raw_signal_job_id` and queries by job_id. This causes normalization to miss all raw signals.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 167:\n\n<comment>Normalization jobs now send `raw_signal_id`, but the normalizer expects `raw_signal_job_id` and queries by job_id. This causes normalization to miss all raw signals.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+            # Enqueue next pipeline stage: normalization\n+            enqueue_job(\n+                job_type=\"normalize:signals\",\n+                params={\"raw_signal_id\": raw_signal.id},\n+                source=\"worker\",\n+                priority=job.get(\"priority\", 5),\n</file context>\n```\n\n</details>\n\n```suggestion\n                params={\"raw_signal_job_id\": job_id},\n```",
+      "suggestions": [
+        {
+          "code": "                params={\"raw_signal_job_id\": job_id},",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 167:\n\n<comment>Normalization jobs now send `raw_signal_id`, but the normalizer expects `raw_signal_job_id` and queries by job_id. This causes normalization to miss all raw signals.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+            # Enqueue next pipeline stage: normalization\n+            enqueue_job(\n+                job_type=\"normalize:signals\",\n+                params={\"raw_signal_id\": raw_signal.id},\n+                source=\"worker\",\n+                priority=job.get(\"priority\", 5),\n</file context>\n```\n\n</details>\n\n```suggestion\n                params={\"raw_signal_job_id\": job_id},\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -1,230 +1,280 @@\n \"\"\"\n-Scrape Worker - processes scraping jobs from the queue\n+Scrape Worker - Consumes scraping jobs from Redis queue\n+\n+This worker continuously polls the Redis queue for scraping jobs,\n+executes the appropriate scraper, creates raw signal records,\n+and triggers the next pipeline stage (normalization).\n+\n+Usage:\n+    python -m app.workers.scrape_worker\n+\n+Environment Variables:\n+    DATABASE_URL: Database connection string\n+    REDIS_URL: Redis connection URL\n+    SPOTIFY_CLIENT_ID: Spotify API client ID\n+    SPOTIFY_CLIENT_SECRET: Spotify API client secret\n+    YOUTUBE_API_KEY: YouTube API key\n \"\"\"\n import asyncio\n-import aiohttp\n import json\n-import time\n-from typing import Dict, Any, Optional\n import logging\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\n-from app.models.staging import ScraperRawSignal\n-from app.models.database import SessionLocal, Contact\n-from sqlalchemy.orm import Session\n-from sqlalchemy import create_engine\n import os\n+import sys\n+from datetime import datetime\n+from typing import Dict, Any, Optional\n+from pathlib import Path\n+\n+# Add parent directory to path for imports\n+sys.path.insert(0, str(Path(__file__).parent.parent))\n+\n+from app.workers.queue_adapter import (\n+    dequeue_job, \n+    complete_job, \n+    fail_job, \n+    enqueue_job,\n+    push_to_dead_letter\n+)\n+from app.models.staging import ScraperRawSignal\n+from app.models.database import SessionLocal, engine, Base\n+from loguru import logger\n+\n+# Configure logging\n+logging.basicConfig(\n+    level=logging.INFO,\n+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'\n+)\n+log = logger.bind(service=\"scrape-worker\")\n \n-logger = logging.getLogger(__name__)\n+# Create tables if they don't exist\n+Base.metadata.create_all(bind=engine)\n \n-DATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./artist_promo.db\")\n-engine = create_engine(DATABASE_URL)\n+# Scraper registry - lazy loaded to avoid circular imports\n+SCRAPER_MAP = {\n+    \"spotify\": None,\n+    \"youtube\": None,\n+    \"instagram\": None,\n+    \"web\": None,\n+}\n \n-class ScrapeWorker:\n-    def __init__(self):\n-        self.session = None\n-        self.running = True\n \n-    async def initialize_session(self):\n-        \"\"\"Initialize HTTP session\"\"\"\n-        if self.session is None:\n-            timeout = aiohttp.ClientTimeout(total=30)\n-            self.session = aiohttp.ClientSession(timeout=timeout)\n-        return self.session\n+def get_scraper(platform: str):\n+    \"\"\"\n+    Lazy loader for scrapers to avoid circular imports\n+    \n+    Args:\n+        platform: Platform name (spotify, youtube, instagram, web)\n+        \n+    Returns:\n+        Scraper class for the platform\n+    \"\"\"\n+    if platform == \"spotify\":\n+        from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n+        return SpotifyPlaylistScraper\n+    elif platform == \"youtube\":\n+        from app.scrapers.youtube_scraper import YouTubeChannelScraper\n+        return YouTubeChannelScraper\n+    elif platform == \"instagram\":\n+        from app.scrapers.instagram_scraper import InstagramScraper\n+        return InstagramScraper\n+    elif platform == \"web\":\n+        from app.scrapers.web_scraper import WebContactScraper\n+        return WebContactScraper\n+    else:\n+        raise ValueError(f\"Unknown platform: {platform}\")\n+\n \n-    async def process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:\n-        \"\"\"Process a single scraping job\"\"\"\n-        job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+async def execute_scraper(job: Dict[str, Any]) -> Dict[str, Any]:\n+    \"\"\"\n+    Execute scraper based on job type and create raw signal\n+    \n+    Args:\n+        job: Job payload from queue\n         \n-        if job_type.startswith(\"scrape:\"):\n-            platform = job_type.split(\":\")[1].split(\"_\")[0]  # e.g., \"spotify\"\n+    Returns:\n+        Result dict with raw_signal_id and stats\n+        \n+    Raises:\n+        ValueError: If job type is invalid or scraper not found\n+        Exception: If scraper execution fails\n+    \"\"\"\n+    job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+    job_id = job[\"job_id\"]\n+    params = job.get(\"params\", {})\n+    dedupe_key = job.get(\"dedupe_key\")\n+    \n+    log.info(f\"Executing job {job_id} of type {job_type}\")\n+    \n+    if not job_type.startswith(\"scrape:\"):\n+        raise ValueError(f\"Invalid job type: {job_type}\")\n+    \n+    # Extract platform from job type\n+    # Format: \"scrape:spotify_playlist\" -> \"spotify\"\n+    platform = job_type.split(\":\")[1].split(\"_\")[0]\n+    \n+    # Get scraper class\n+    try:\n+        scraper_cls = get_scraper(platform)\n+    except ValueError as e:\n+        log.error(f\"Unknown platform {platform}: {str(e)}\")\n+        raise\n+    \n+    scraper = scraper_cls()\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n+            lambda: scraper.scrape(**params)\n+        )\n+        \n+        # Handle None results\n+        if results is None:\n+            results = []\n+        \n+        # Get scraper stats\n+        stats = scraper.get_stats() if hasattr(scraper, 'get_stats') else {}\n+        \n+        # Create raw signal record\n+        db = SessionLocal()\n+        try:\n+            raw_signal = ScraperRawSignal(\n+                job_id=job_id,\n+                source_platform=platform,\n+                payload={\n+                    \"results\": results,\n+                    \"stats\": stats,\n+                    \"scraped_at\": datetime.utcnow().isoformat()\n+                },\n+                dedupe_key=dedupe_key or f\"{platform}:{job_id}\"\n+            )\n+            db.add(raw_signal)\n+            db.commit()\n+            db.refresh(raw_signal)\n             \n-            # Import the appropriate scraper\n-            if platform == \"spotify\":\n-                from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n-                scraper_cls = SpotifyPlaylistScraper\n-            elif platform == \"youtube\":\n-                from app.scrapers.youtube_scraper import YouTubeChannelScraper\n-                scraper_cls = YouTubeChannelScraper\n-            elif platform == \"instagram\":\n-                from app.scrapers.instagram_scraper import InstagramScraper\n-                scraper_cls = InstagramScraper\n-            elif platform == \"web\":\n-                from app.scrapers.web_scraper import WebContactScraper\n-                scraper_cls = WebContactScraper\n-            else:\n-                raise ValueError(f\"Unknown scraper platform: {platform}\")\n+            log.info(\n+                f\"Created raw signal {raw_signal.id} for job {job_id}\",\n+                extra={\n+                    \"raw_signal_id\": raw_signal.id, \n+                    \"items_found\": len(results),\n+                    \"platform\": platform\n+                }\n+            )\n             \n-            # Create scraper instance\n-            scraper = scraper_cls()\n+            # Enqueue next pipeline stage: normalization\n+            enqueue_job(\n+                job_type=\"normalize:signals\",\n+                params={\"raw_signal_id\": raw_signal.id},",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108945",
+      "tracked_at": "2026-03-04T06:42:20.213Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.213Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.214Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.273Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:34.267Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:37.239Z",
+          "details": "{\"patch\":\"--- a/app/workers/scrape_worker.py\\n+++ b/app/workers/scrape_worker.py\\n@@ -164,7 +164,7 @@\\n                     fp = fingerprint(job)\\n                     if seen_before(fp):\\n                         logger.info(f\\\"Skipping duplicate job: {job['job_id']}\\\")\\n-                        continue\\n+                params={\\\"raw_signal_job_id\\\": job_id},\\n                     \\n                     mark_seen(fp)\\n                     \\n\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:37.280Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606557241.patch\\\"\\nerror: patch failed: app/workers/scrape_worker.py:164\\nerror: app/workers/scrape_worker.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/workers/scrape_worker.py\n+++ b/app/workers/scrape_worker.py\n@@ -164,7 +164,7 @@\n                     fp = fingerprint(job)\n                     if seen_before(fp):\n                         logger.info(f\"Skipping duplicate job: {job['job_id']}\")\n-                        continue\n+                params={\"raw_signal_job_id\": job_id},\n                     \n                     mark_seen(fp)\n                     \n",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606557241.patch\"\nerror: patch failed: app/workers/scrape_worker.py:164\nerror: app/workers/scrape_worker.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108938",
+      "file": "test_pipeline_fixes.py",
+      "start_line": 339,
+      "end_line": 339,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"ls -la test_pipeline_fixes.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n time test_pipeline_fixes.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | head -n 30\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | grep -A 10 \\\"def get_queue_length\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | grep -A 15 \\\"def get_job_status\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat requirements.txt | grep -i python\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python -c 'print(\\\"test\\\", exc_info=True)'\"}}]}]} -->\nP1: The `print()` function does not accept an `exc_info` keyword argument. This will raise a `TypeError` and crash the script, masking the original exception.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At test_pipeline_fixes.py, line 339:\n\n<comment>The `print()` function does not accept an `exc_info` keyword argument. This will raise a `TypeError` and crash the script, masking the original exception.</comment>\n\n<file context>\n@@ -0,0 +1,345 @@\n+        return results[\"failed\"] == 0\n+        \n+    except Exception as e:\n+        print(f\"\\n✗ FATAL ERROR: {str(e)}\", exc_info=True)\n+        return False\n+\n</file context>\n```\n\n</details>\n\n```suggestion\n        print(f\"\\n✗ FATAL ERROR: {str(e)}\")\n```",
+      "suggestions": [
+        {
+          "code": "        print(f\"\\n✗ FATAL ERROR: {str(e)}\")",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At test_pipeline_fixes.py, line 339:\n\n<comment>The `print()` function does not accept an `exc_info` keyword argument. This will raise a `TypeError` and crash the script, masking the original exception.</comment>\n\n<file context>\n@@ -0,0 +1,345 @@\n+        return results[\"failed\"] == 0\n+        \n+    except Exception as e:\n+        print(f\"\\n✗ FATAL ERROR: {str(e)}\", exc_info=True)\n+        return False\n+\n</file context>\n```\n\n</details>\n\n```suggestion\n        print(f\"\\n✗ FATAL ERROR: {str(e)}\")\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,345 @@\n+\"\"\"\n+Test script to validate critical pipeline fixes\n+\n+This script tests:\n+1. Job enqueueing\n+2. Job status querying\n+3. Queue processing\n+4. Worker job consumption (requires workers running)\n+5. State transitions\n+6. Evidence storage\n+\n+Usage:\n+    python test_pipeline_fixes.py\n+\n+Requirements:\n+    - Redis running\n+    - Database running\n+    - API server running (for HTTP tests)\n+    - Workers running (for full pipeline tests)\n+\"\"\"\n+import asyncio\n+import requests\n+import time\n+import sys\n+import os\n+from datetime import datetime\n+\n+# Add parent directory to path\n+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n+\n+from app.workers.queue_adapter import enqueue_job, get_job_status, get_queue_length, r\n+\n+# Configuration\n+BASE_URL = os.getenv(\"API_URL\", \"http://localhost:8000\")\n+API_KEY = os.getenv(\"TEST_API_KEY\", \"test-api-key\")\n+\n+HEADERS = {\n+    \"Authorization\": f\"Bearer {API_KEY}\",\n+    \"Content-Type\": \"application/json\"\n+}\n+\n+\n+def test_job_enqueue():\n+    \"\"\"Test 1: Verify job can be enqueued\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 1: Job Enqueue\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\"genre\": \"hip-hop\", \"min_followers\": 1000},\n+            source=\"test\",\n+            priority=5\n+        )\n+        \n+        print(f\"✓ Enqueued job: {job_id}\")\n+        assert job_id is not None, \"Job ID should not be None\"\n+        assert len(job_id) > 0, \"Job ID should not be empty\"\n+        \n+        return job_id\n+        \n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return None\n+\n+\n+def test_job_status(job_id):\n+    \"\"\"Test 2: Verify job status can be queried\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 2: Job Status Query\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs/{job_id}/status\",\n+            headers=HEADERS\n+        )\n+        \n+        if response.status_code == 404:\n+            print(f\"⚠ Job not found in tracker (may not be an issue)\")\n+            return True\n+        \n+        assert response.status_code == 200, f\"Expected 200, got {response.status_code}\"\n+        \n+        data = response.json()\n+        assert data[\"job_id\"] == job_id, f\"Job ID mismatch: {data['job_id']} != {job_id}\"\n+        assert data[\"status\"] in [\"queued\", \"running\", \"completed\", \"failed\", \"unknown\"], \\\n+            f\"Invalid status: {data['status']}\"\n+        \n+        print(f\"✓ Job status: {data['status']}\")\n+        print(f\"  Type: {data.get('type', 'N/A')}\")\n+        print(f\"  Queue: {data.get('queue', 'N/A')}\")\n+        print(f\"  Created: {data.get('created', 'N/A')}\")\n+        \n+        return True\n+        \n+    except requests.exceptions.ConnectionError:\n+        print(f\"⚠ API server not running at {BASE_URL}\")\n+        print(\"  Skipping HTTP test, checking Redis directly...\")\n+        \n+        # Check Redis directly\n+        status = r.hget(\"jobs\", job_id)\n+        if status:\n+            print(f\"✓ Job found in Redis: {status}\")\n+            return True\n+        else:\n+            print(f\"⚠ Job not found in Redis\")\n+            return True  # Not a failure, just not tracked yet\n+            \n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return False\n+\n+\n+def test_queue_length():\n+    \"\"\"Test 3: Verify queue has jobs\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 3: Queue Length\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        scrape_queue_length = get_queue_length(\"queue:scrape\")\n+        normalize_queue_length = get_queue_length(\"queue:normalize\")\n+        \n+        print(f\"✓ Scrape queue length: {scrape_queue_length}\")\n+        print(f\"✓ Normalize queue length: {normalize_queue_length}\")\n+        \n+        # At least one queue should have jobs\n+        total_jobs = scrape_queue_length + normalize_queue_length\n+        if total_jobs > 0:\n+            print(f\"✓ Total queued jobs: {total_jobs}\")\n+        else:\n+            print(f\"⚠ No jobs in queues (workers may be processing fast)\")\n+        \n+        return True\n+        \n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return False\n+\n+\n+async def test_worker_processing():\n+    \"\"\"Test 4: Verify worker processes job\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 4: Worker Processing\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        # Enqueue job\n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\"genre\": \"hip-hop\", \"min_followers\": 1000},\n+            source=\"test\",\n+            priority=5\n+        )\n+        \n+        print(f\"Enqueued job: {job_id}\")\n+        \n+        # Poll for completion\n+        max_wait = 60  # seconds\n+        poll_interval = 2  # seconds\n+        \n+        print(f\"Polling for job completion (max {max_wait}s)...\")\n+        \n+        for i in range(max_wait // poll_interval):\n+            await asyncio.sleep(poll_interval)\n+            \n+            status_data = get_job_status(job_id)\n+            status = status_data.get(\"status\", \"unknown\")\n+            \n+            print(f\"  Poll {i+1}: Status = {status}\")\n+            \n+            if status == \"completed\":\n+                print(f\"✓ Job completed successfully\")\n+                result = status_data.get(\"result\", {})\n+                print(f\"  Result: {result}\")\n+                return True\n+            elif status == \"failed\":\n+                print(f\"✗ Job failed: {status_data.get('error', 'Unknown error')}\")\n+                return False\n+        \n+        print(f\"✗ Job did not complete within {max_wait} seconds\")\n+        print(\"  (Workers may not be running)\")\n+        return False\n+        \n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return False\n+\n+\n+def test_list_jobs():\n+    \"\"\"Test 5: List jobs endpoint\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 5: List Jobs Endpoint\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs\",\n+            headers=HEADERS,\n+            params={\"limit\": 10}\n+        )\n+        \n+        if response.status_code == 404:\n+            print(f\"⚠ Endpoint not found (API may not have latest changes)\")\n+            return True\n+        \n+        assert response.status_code == 200, f\"Expected 200, got {response.status_code}\"\n+        \n+        data = response.json()\n+        print(f\"✓ Total jobs: {data.get('total', 'N/A')}\")\n+        print(f\"✓ Returned: {len(data.get('jobs', []))}\")\n+        \n+        if data.get('jobs'):\n+            print(f\"  Latest job: {data['jobs'][0].get('job_id', 'N/A')}\")\n+        \n+        return True\n+        \n+    except requests.exceptions.ConnectionError:\n+        print(f\"⚠ API server not running\")\n+        return True\n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return False\n+\n+\n+def test_queue_stats():\n+    \"\"\"Test 6: Queue stats endpoint\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 6: Queue Stats Endpoint\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs/queue/stats\",\n+            headers=HEADERS\n+        )\n+        \n+        if response.status_code == 404:\n+            print(f\"⚠ Endpoint not found\")\n+            return True\n+        \n+        assert response.status_code == 200, f\"Expected 200, got {response.status_code}\"\n+        \n+        data = response.json()\n+        print(f\"✓ Queue stats retrieved\")\n+        print(f\"  Queues: {data.get('queues', {})}\")\n+        print(f\"  Job stats: {data.get('job_stats', {})}\")\n+        \n+        return True\n+        \n+    except requests.exceptions.ConnectionError:\n+        print(f\"⚠ API server not running\")\n+        return True\n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return False\n+\n+\n+async def main():\n+    \"\"\"Run all tests\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"PIPELINE FIXES VALIDATION TEST\")\n+    print(\"=\"*60)\n+    print(f\"API URL: {BASE_URL}\")\n+    print(f\"Timestamp: {datetime.utcnow().isoformat()}\")\n+    print(\"=\"*60)\n+    \n+    results = {\n+        \"passed\": 0,\n+        \"failed\": 0,\n+        \"skipped\": 0\n+    }\n+    \n+    try:\n+        # Test 1: Job enqueue\n+        job_id = test_job_enqueue()\n+        if job_id:\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"failed\"] += 1\n+            print(\"\\n✗ Cannot continue without job enqueue\")\n+            return\n+        \n+        # Test 2: Job status\n+        if test_job_status(job_id):\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"failed\"] += 1\n+        \n+        # Test 3: Queue length\n+        if test_queue_length():\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"failed\"] += 1\n+        \n+        # Test 4: Worker processing (async)\n+        worker_test = await test_worker_processing()\n+        if worker_test:\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"skipped\"] += 1  # Not a failure if workers aren't running\n+        \n+        # Test 5: List jobs\n+        if test_list_jobs():\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"failed\"] += 1\n+        \n+        # Test 6: Queue stats\n+        if test_queue_stats():\n+            results[\"passed\"] += 1\n+        else:\n+            results[\"failed\"] += 1\n+        \n+        # Summary\n+        print(\"\\n\" + \"=\"*60)\n+        print(\"TEST SUMMARY\")\n+        print(\"=\"*60)\n+        print(f\"Passed:  {results['passed']}\")\n+        print(f\"Failed:  {results['failed']}\")\n+        print(f\"Skipped: {results['skipped']}\")\n+        print(\"=\"*60)\n+        \n+        if results[\"failed\"] == 0:\n+            print(\"✓ ALL TESTS PASSED\")\n+            print(\"\\nNext steps:\")\n+            print(\"1. Start workers: python -m app.workers.scrape_worker\")\n+            print(\"2. Start API: uvicorn app.api.main:app --reload\")\n+            print(\"3. Run full pipeline test\")\n+        else:\n+            print(\"✗ SOME TESTS FAILED\")\n+            print(\"\\nReview errors above and fix before proceeding\")\n+        \n+        return results[\"failed\"] == 0\n+        \n+    except Exception as e:\n+        print(f\"\\n✗ FATAL ERROR: {str(e)}\", exc_info=True)",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108938",
+      "tracked_at": "2026-03-04T06:42:20.219Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.219Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.220Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.274Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:37.281Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:39.883Z",
+          "details": "{\"error\":\"Could not fetch file: test_pipeline_fixes.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: test_pipeline_fixes.py"
+    },
+    {
+      "id": "2882108936",
+      "file": "app/api/main.py",
+      "start_line": 213,
+      "end_line": 213,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg \\\"def enqueue_job\\\" -A 5\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"def cancel_job\\\" -n\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat -n app/api/main.py | rg \\\"def cancel_job\\\" -A 35\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '390,465p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python -m py_compile app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"^import\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"json\\\" -n | head -n 10\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '282,297p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"import json\\\"\"}}]}]} -->\nP0: `json` is not imported before use, which will cause a `NameError`.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 213:\n\n<comment>`json` is not imported before use, which will cause a `NameError`.</comment>\n\n<file context>\n@@ -150,6 +150,158 @@ async def get_metrics():\n+    \n+    jobs = []\n+    for job_id, job_json in jobs_data.items():\n+        job = json.loads(job_json)\n+        \n+        # Apply filters\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 213:\n\n<comment>`json` is not imported before use, which will cause a `NameError`.</comment>\n\n<file context>\n@@ -150,6 +150,158 @@ async def get_metrics():\n+    \n+    jobs = []\n+    for job_id, job_json in jobs_data.items():\n+        job = json.loads(job_json)\n+        \n+        # Apply filters\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "9c05703",
+      "diff_hunk": "@@ -150,6 +150,158 @@ async def get_metrics():\n     \"\"\"Prometheus metrics endpoint\"\"\"\n     return await metrics_endpoint()\n \n+\n+# ==================== JOB MANAGEMENT ENDPOINTS ====================\n+\n+@app.get(\"/jobs/{job_id}/status\")\n+async def get_job_status_endpoint(\n+    job_id: str,\n+    current_user: dict = Depends(get_current_user)\n+):\n+    \"\"\"\n+    Get status of a queued/completed job\n+    \n+    Returns the current status of a job including:\n+    - status: queued, running, completed, failed\n+    - type: job type (e.g., scrape:spotify_playlist)\n+    - queue: which queue the job is in\n+    - created: when the job was created\n+    - completed: when the job completed (if applicable)\n+    - result: job result (if completed)\n+    - error: error message (if failed)\n+    \"\"\"\n+    from app.workers.queue_adapter import get_job_status\n+    \n+    status = get_job_status(job_id)\n+    \n+    if status.get(\"status\") == \"unknown\":\n+        raise HTTPException(status_code=404, detail=f\"Job {job_id} not found\")\n+    \n+    return {\n+        \"job_id\": job_id,\n+        \"status\": status.get(\"status\"),\n+        \"type\": status.get(\"type\"),\n+        \"queue\": status.get(\"queue\"),\n+        \"created\": status.get(\"created\"),\n+        \"completed\": status.get(\"completed\"),\n+        \"result\": status.get(\"result\"),\n+        \"error\": status.get(\"error\")\n+    }\n+\n+\n+@app.get(\"/jobs\")\n+async def list_jobs(\n+    status: Optional[str] = Query(None, description=\"Filter by status (queued, running, completed, failed)\"),\n+    job_type: Optional[str] = Query(None, description=\"Filter by job type\"),\n+    limit: int = Query(default=50, le=100, description=\"Maximum number of jobs to return\"),\n+    current_user: dict = Depends(get_current_user)\n+):\n+    \"\"\"\n+    List jobs with optional filtering\n+    \n+    Returns a paginated list of jobs with their current status.\n+    Jobs are sorted by creation date (newest first).\n+    \"\"\"\n+    from app.workers.queue_adapter import r\n+    import json\n+    \n+    # Get all jobs from hash\n+    jobs_data = r.hgetall(\"jobs\")\n+    \n+    jobs = []\n+    for job_id, job_json in jobs_data.items():\n+        job = json.loads(job_json)",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108936",
+      "tracked_at": "2026-03-04T06:42:20.236Z",
+      "status": "committed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.236Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.236Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.275Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:39.885Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:46.202Z",
+          "details": "{\"patch\":\"--- a/app/api/main.py\\n+++ b/app/api/main.py\\n@@ -190,27 +190,32 @@\\n     verified: bool\\n \\n class ExportRequest(BaseModel):\\n-    contact_type: Optional[str] = None\\n-    min_score: float = 0.0\\n-    limit: int = 1000\\n-\\n-\\n-# ==================== SCRAPER ENDPOINTS ====================\\n-\\n-@app.post(\\\"/scrape/spotify\\\")\\n-async def scrape_spotify(\\n-    request: ScraperRequest,\\n-    background_tasks: BackgroundTasks,\\n-    db: Session = Depends(get_db),\\n-    current_user: dict = Depends(get_current_user)\\n-):\\n\"}"
+        },
+        {
+          "status": "committed",
+          "timestamp": "2026-03-04T06:42:58.114Z",
+          "details": "{\"commit_sha\":\"9c05703\"}"
+        }
+      ],
+      "patch": "--- a/app/api/main.py\n+++ b/app/api/main.py\n@@ -190,27 +190,32 @@\n     verified: bool\n \n class ExportRequest(BaseModel):\n-    contact_type: Optional[str] = None\n-    min_score: float = 0.0\n-    limit: int = 1000\n-\n-\n-# ==================== SCRAPER ENDPOINTS ====================\n-\n-@app.post(\"/scrape/spotify\")\n-async def scrape_spotify(\n-    request: ScraperRequest,\n-    background_tasks: BackgroundTasks,\n-    db: Session = Depends(get_db),\n-    current_user: dict = Depends(get_current_user)\n-):\n"
+    },
+    {
+      "id": "2882108947",
+      "file": "app/workers/scrape_worker.py",
+      "start_line": 144,
+      "end_line": 144,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/queue_adapter.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/spotify_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/youtube_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/instagram_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/web_scraper.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/signal_normalizer_worker.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/scrape_worker.py\"}}]}]} -->\nP1: Raw signals now store a wrapper payload (`{\"results\": [...]}`), but the normalizer expects the platform-specific fields at the top level. This breaks normalization and results in zero contacts for all scrapes.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 144:\n\n<comment>Raw signals now store a wrapper payload (`{\"results\": [...]}`), but the normalizer expects the platform-specific fields at the top level. This breaks normalization and results in zero contacts for all scrapes.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+            raw_signal = ScraperRawSignal(\n+                job_id=job_id,\n+                source_platform=platform,\n+                payload={\n+                    \"results\": results,\n+                    \"stats\": stats,\n</file context>\n```\n\n</details>\n\n<a href=\"https://www.cubic.dev/action/fix/violation/d9fa0604-a0d6-4b12-8886-82c8a315751c\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\">\n  <picture>\n    <source media=\"(prefers-color-scheme: dark)\" srcset=\"https://cubic.dev/buttons/fix-with-cubic-dark.svg\">\n    <source media=\"(prefers-color-scheme: light)\" srcset=\"https://cubic.dev/buttons/fix-with-cubic-light.svg\">\n    <img alt=\"Fix with Cubic\" src=\"https://cubic.dev/buttons/fix-with-cubic-dark.svg\">\n  </picture>\n</a>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 144:\n\n<comment>Raw signals now store a wrapper payload (`{\"results\": [...]}`), but the normalizer expects the platform-specific fields at the top level. This breaks normalization and results in zero contacts for all scrapes.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+            raw_signal = ScraperRawSignal(\n+                job_id=job_id,\n+                source_platform=platform,\n+                payload={\n+                    \"results\": results,\n+                    \"stats\": stats,\n</file context>\n```\n\n</details>\n\n<a href=\"https://www.cubic.dev/action/fix/violation/d9fa0604-a0d6-4b12-8886-82c8a315751c\" target=\"_blank\" rel=\"noopener noreferrer\" data-no-image-dialog=\"true\">\n  <picture>\n    <source media=\"(prefers-color-scheme: dark)\" srcset=\"https://cubic.dev/buttons/fix-with-cubic-dark.svg\">\n    <source media=\"(prefers-color-scheme: light)\" srcset=\"https://cubic.dev/buttons/fix-with-cubic-light.svg\">\n    <img alt=\"Fix with Cubic\" src=\"https://cubic.dev/buttons/fix-with-cubic-dark.svg\">\n  </picture>\n</a>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -1,230 +1,280 @@\n \"\"\"\n-Scrape Worker - processes scraping jobs from the queue\n+Scrape Worker - Consumes scraping jobs from Redis queue\n+\n+This worker continuously polls the Redis queue for scraping jobs,\n+executes the appropriate scraper, creates raw signal records,\n+and triggers the next pipeline stage (normalization).\n+\n+Usage:\n+    python -m app.workers.scrape_worker\n+\n+Environment Variables:\n+    DATABASE_URL: Database connection string\n+    REDIS_URL: Redis connection URL\n+    SPOTIFY_CLIENT_ID: Spotify API client ID\n+    SPOTIFY_CLIENT_SECRET: Spotify API client secret\n+    YOUTUBE_API_KEY: YouTube API key\n \"\"\"\n import asyncio\n-import aiohttp\n import json\n-import time\n-from typing import Dict, Any, Optional\n import logging\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\n-from app.models.staging import ScraperRawSignal\n-from app.models.database import SessionLocal, Contact\n-from sqlalchemy.orm import Session\n-from sqlalchemy import create_engine\n import os\n+import sys\n+from datetime import datetime\n+from typing import Dict, Any, Optional\n+from pathlib import Path\n+\n+# Add parent directory to path for imports\n+sys.path.insert(0, str(Path(__file__).parent.parent))\n+\n+from app.workers.queue_adapter import (\n+    dequeue_job, \n+    complete_job, \n+    fail_job, \n+    enqueue_job,\n+    push_to_dead_letter\n+)\n+from app.models.staging import ScraperRawSignal\n+from app.models.database import SessionLocal, engine, Base\n+from loguru import logger\n+\n+# Configure logging\n+logging.basicConfig(\n+    level=logging.INFO,\n+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'\n+)\n+log = logger.bind(service=\"scrape-worker\")\n \n-logger = logging.getLogger(__name__)\n+# Create tables if they don't exist\n+Base.metadata.create_all(bind=engine)\n \n-DATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./artist_promo.db\")\n-engine = create_engine(DATABASE_URL)\n+# Scraper registry - lazy loaded to avoid circular imports\n+SCRAPER_MAP = {\n+    \"spotify\": None,\n+    \"youtube\": None,\n+    \"instagram\": None,\n+    \"web\": None,\n+}\n \n-class ScrapeWorker:\n-    def __init__(self):\n-        self.session = None\n-        self.running = True\n \n-    async def initialize_session(self):\n-        \"\"\"Initialize HTTP session\"\"\"\n-        if self.session is None:\n-            timeout = aiohttp.ClientTimeout(total=30)\n-            self.session = aiohttp.ClientSession(timeout=timeout)\n-        return self.session\n+def get_scraper(platform: str):\n+    \"\"\"\n+    Lazy loader for scrapers to avoid circular imports\n+    \n+    Args:\n+        platform: Platform name (spotify, youtube, instagram, web)\n+        \n+    Returns:\n+        Scraper class for the platform\n+    \"\"\"\n+    if platform == \"spotify\":\n+        from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n+        return SpotifyPlaylistScraper\n+    elif platform == \"youtube\":\n+        from app.scrapers.youtube_scraper import YouTubeChannelScraper\n+        return YouTubeChannelScraper\n+    elif platform == \"instagram\":\n+        from app.scrapers.instagram_scraper import InstagramScraper\n+        return InstagramScraper\n+    elif platform == \"web\":\n+        from app.scrapers.web_scraper import WebContactScraper\n+        return WebContactScraper\n+    else:\n+        raise ValueError(f\"Unknown platform: {platform}\")\n+\n \n-    async def process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:\n-        \"\"\"Process a single scraping job\"\"\"\n-        job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+async def execute_scraper(job: Dict[str, Any]) -> Dict[str, Any]:\n+    \"\"\"\n+    Execute scraper based on job type and create raw signal\n+    \n+    Args:\n+        job: Job payload from queue\n         \n-        if job_type.startswith(\"scrape:\"):\n-            platform = job_type.split(\":\")[1].split(\"_\")[0]  # e.g., \"spotify\"\n+    Returns:\n+        Result dict with raw_signal_id and stats\n+        \n+    Raises:\n+        ValueError: If job type is invalid or scraper not found\n+        Exception: If scraper execution fails\n+    \"\"\"\n+    job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+    job_id = job[\"job_id\"]\n+    params = job.get(\"params\", {})\n+    dedupe_key = job.get(\"dedupe_key\")\n+    \n+    log.info(f\"Executing job {job_id} of type {job_type}\")\n+    \n+    if not job_type.startswith(\"scrape:\"):\n+        raise ValueError(f\"Invalid job type: {job_type}\")\n+    \n+    # Extract platform from job type\n+    # Format: \"scrape:spotify_playlist\" -> \"spotify\"\n+    platform = job_type.split(\":\")[1].split(\"_\")[0]\n+    \n+    # Get scraper class\n+    try:\n+        scraper_cls = get_scraper(platform)\n+    except ValueError as e:\n+        log.error(f\"Unknown platform {platform}: {str(e)}\")\n+        raise\n+    \n+    scraper = scraper_cls()\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n+            lambda: scraper.scrape(**params)\n+        )\n+        \n+        # Handle None results\n+        if results is None:\n+            results = []\n+        \n+        # Get scraper stats\n+        stats = scraper.get_stats() if hasattr(scraper, 'get_stats') else {}\n+        \n+        # Create raw signal record\n+        db = SessionLocal()\n+        try:\n+            raw_signal = ScraperRawSignal(\n+                job_id=job_id,\n+                source_platform=platform,\n+                payload={",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108947",
+      "tracked_at": "2026-03-04T06:42:20.269Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.269Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.270Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:20.275Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:46.222Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:53.203Z",
+          "details": "{\"patch\":\"--- a/app/workers/scrape_worker.py\\n+++ b/app/workers/scrape_worker.py\\n@@ -121,27 +121,33 @@\\n                         dedupe_key=f\\\"{platform}:{result.get('id', result.get('platform_id', 'unknown'))}\\\"\\n                     )\\n                     db.add(raw_signal)\\n-                \\n-                db.commit()\\n-                \\n-                # After saving raw signals, queue normalization job\\n-                from app.workers.queue_adapter import enqueue_job\\n-                enqueue_job(\\n-      \"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:53.232Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606573205.patch\\\"\\nerror: patch failed: app/workers/scrape_worker.py:121\\nerror: app/workers/scrape_worker.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/workers/scrape_worker.py\n+++ b/app/workers/scrape_worker.py\n@@ -121,27 +121,33 @@\n                         dedupe_key=f\"{platform}:{result.get('id', result.get('platform_id', 'unknown'))}\"\n                     )\n                     db.add(raw_signal)\n-                \n-                db.commit()\n-                \n-                # After saving raw signals, queue normalization job\n-                from app.workers.queue_adapter import enqueue_job\n-                enqueue_job(\n-      ",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606573205.patch\"\nerror: patch failed: app/workers/scrape_worker.py:121\nerror: app/workers/scrape_worker.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108963",
+      "file": "app/workers/scrape_worker.py",
+      "start_line": 125,
+      "end_line": 129,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/queue_adapter.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/spotify_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/youtube_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/instagram_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/web_scraper.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/signal_normalizer_worker.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/scrape_worker.py\"}}]}]} -->\nP2: Async scrapers (e.g., WebContactScraper.scrape) return coroutines, but the worker always runs scrape in a thread. This leaves `results` as a coroutine and the job fails when `len(results)` is evaluated. Detect coroutine scrapers and await them directly.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 125:\n\n<comment>Async scrapers (e.g., WebContactScraper.scrape) return coroutines, but the worker always runs scrape in a thread. This leaves `results` as a coroutine and the job fails when `len(results)` is evaluated. Detect coroutine scrapers and await them directly.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n</file context>\n```\n\n</details>\n\n```suggestion\n        if asyncio.iscoroutinefunction(scraper.scrape):\n            results = await scraper.scrape(**params)\n        else:\n            loop = asyncio.get_running_loop()\n            results = await loop.run_in_executor(\n                None,\n                lambda: scraper.scrape(**params)\n            )\n```",
+      "suggestions": [
+        {
+          "code": "        if asyncio.iscoroutinefunction(scraper.scrape):\n            results = await scraper.scrape(**params)\n        else:\n            loop = asyncio.get_running_loop()\n            results = await loop.run_in_executor(\n                None,\n                lambda: scraper.scrape(**params)\n            )",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 125:\n\n<comment>Async scrapers (e.g., WebContactScraper.scrape) return coroutines, but the worker always runs scrape in a thread. This leaves `results` as a coroutine and the job fails when `len(results)` is evaluated. Detect coroutine scrapers and await them directly.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n</file context>\n```\n\n</details>\n\n```suggestion\n        if asyncio.iscoroutinefunction(scraper.scrape):\n            results = await scraper.scrape(**params)\n        else:\n            loop = asyncio.get_running_loop()\n            results = await loop.run_in_executor(\n                None,\n                lambda: scraper.scrape(**params)\n            )\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -1,230 +1,280 @@\n \"\"\"\n-Scrape Worker - processes scraping jobs from the queue\n+Scrape Worker - Consumes scraping jobs from Redis queue\n+\n+This worker continuously polls the Redis queue for scraping jobs,\n+executes the appropriate scraper, creates raw signal records,\n+and triggers the next pipeline stage (normalization).\n+\n+Usage:\n+    python -m app.workers.scrape_worker\n+\n+Environment Variables:\n+    DATABASE_URL: Database connection string\n+    REDIS_URL: Redis connection URL\n+    SPOTIFY_CLIENT_ID: Spotify API client ID\n+    SPOTIFY_CLIENT_SECRET: Spotify API client secret\n+    YOUTUBE_API_KEY: YouTube API key\n \"\"\"\n import asyncio\n-import aiohttp\n import json\n-import time\n-from typing import Dict, Any, Optional\n import logging\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\n-from app.models.staging import ScraperRawSignal\n-from app.models.database import SessionLocal, Contact\n-from sqlalchemy.orm import Session\n-from sqlalchemy import create_engine\n import os\n+import sys\n+from datetime import datetime\n+from typing import Dict, Any, Optional\n+from pathlib import Path\n+\n+# Add parent directory to path for imports\n+sys.path.insert(0, str(Path(__file__).parent.parent))\n+\n+from app.workers.queue_adapter import (\n+    dequeue_job, \n+    complete_job, \n+    fail_job, \n+    enqueue_job,\n+    push_to_dead_letter\n+)\n+from app.models.staging import ScraperRawSignal\n+from app.models.database import SessionLocal, engine, Base\n+from loguru import logger\n+\n+# Configure logging\n+logging.basicConfig(\n+    level=logging.INFO,\n+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'\n+)\n+log = logger.bind(service=\"scrape-worker\")\n \n-logger = logging.getLogger(__name__)\n+# Create tables if they don't exist\n+Base.metadata.create_all(bind=engine)\n \n-DATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./artist_promo.db\")\n-engine = create_engine(DATABASE_URL)\n+# Scraper registry - lazy loaded to avoid circular imports\n+SCRAPER_MAP = {\n+    \"spotify\": None,\n+    \"youtube\": None,\n+    \"instagram\": None,\n+    \"web\": None,\n+}\n \n-class ScrapeWorker:\n-    def __init__(self):\n-        self.session = None\n-        self.running = True\n \n-    async def initialize_session(self):\n-        \"\"\"Initialize HTTP session\"\"\"\n-        if self.session is None:\n-            timeout = aiohttp.ClientTimeout(total=30)\n-            self.session = aiohttp.ClientSession(timeout=timeout)\n-        return self.session\n+def get_scraper(platform: str):\n+    \"\"\"\n+    Lazy loader for scrapers to avoid circular imports\n+    \n+    Args:\n+        platform: Platform name (spotify, youtube, instagram, web)\n+        \n+    Returns:\n+        Scraper class for the platform\n+    \"\"\"\n+    if platform == \"spotify\":\n+        from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n+        return SpotifyPlaylistScraper\n+    elif platform == \"youtube\":\n+        from app.scrapers.youtube_scraper import YouTubeChannelScraper\n+        return YouTubeChannelScraper\n+    elif platform == \"instagram\":\n+        from app.scrapers.instagram_scraper import InstagramScraper\n+        return InstagramScraper\n+    elif platform == \"web\":\n+        from app.scrapers.web_scraper import WebContactScraper\n+        return WebContactScraper\n+    else:\n+        raise ValueError(f\"Unknown platform: {platform}\")\n+\n \n-    async def process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:\n-        \"\"\"Process a single scraping job\"\"\"\n-        job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+async def execute_scraper(job: Dict[str, Any]) -> Dict[str, Any]:\n+    \"\"\"\n+    Execute scraper based on job type and create raw signal\n+    \n+    Args:\n+        job: Job payload from queue\n         \n-        if job_type.startswith(\"scrape:\"):\n-            platform = job_type.split(\":\")[1].split(\"_\")[0]  # e.g., \"spotify\"\n+    Returns:\n+        Result dict with raw_signal_id and stats\n+        \n+    Raises:\n+        ValueError: If job type is invalid or scraper not found\n+        Exception: If scraper execution fails\n+    \"\"\"\n+    job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+    job_id = job[\"job_id\"]\n+    params = job.get(\"params\", {})\n+    dedupe_key = job.get(\"dedupe_key\")\n+    \n+    log.info(f\"Executing job {job_id} of type {job_type}\")\n+    \n+    if not job_type.startswith(\"scrape:\"):\n+        raise ValueError(f\"Invalid job type: {job_type}\")\n+    \n+    # Extract platform from job type\n+    # Format: \"scrape:spotify_playlist\" -> \"spotify\"\n+    platform = job_type.split(\":\")[1].split(\"_\")[0]\n+    \n+    # Get scraper class\n+    try:\n+        scraper_cls = get_scraper(platform)\n+    except ValueError as e:\n+        log.error(f\"Unknown platform {platform}: {str(e)}\")\n+        raise\n+    \n+    scraper = scraper_cls()\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n+            lambda: scraper.scrape(**params)\n+        )",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108963",
+      "tracked_at": "2026-03-04T06:42:20.282Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.282Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.283Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.773Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:23.302Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:26.302Z",
+          "details": "{\"patch\":\"--- a/app/workers/scrape_worker.py\\n+++ b/app/workers/scrape_worker.py\\n@@ -122,11 +122,14 @@\\n                     )\\n                     db.add(raw_signal)\\n                 \\n-                db.commit()\\n-                \\n-                # After saving raw signals, queue normalization job\\n-                from app.workers.queue_adapter import enqueue_job\\n-                enqueue_job(\\n+        if asyncio.iscoroutinefunction(scraper.scrape):\\n+            results = await scraper.scrape(**params)\\n+  \"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:26.341Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606546304.patch\\\"\\nerror: patch failed: app/workers/scrape_worker.py:122\\nerror: app/workers/scrape_worker.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/workers/scrape_worker.py\n+++ b/app/workers/scrape_worker.py\n@@ -122,11 +122,14 @@\n                     )\n                     db.add(raw_signal)\n                 \n-                db.commit()\n-                \n-                # After saving raw signals, queue normalization job\n-                from app.workers.queue_adapter import enqueue_job\n-                enqueue_job(\n+        if asyncio.iscoroutinefunction(scraper.scrape):\n+            results = await scraper.scrape(**params)\n+  ",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606546304.patch\"\nerror: patch failed: app/workers/scrape_worker.py:122\nerror: app/workers/scrape_worker.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108951",
+      "file": "app/models/staging.py",
+      "start_line": 96,
+      "end_line": 96,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"resolved_entities\\\" app --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"class Contact\\\" app/models --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/models/database.py\"}}]}]} -->\nP1: `back_populates` points to `Contact.resolved_entities`, but Contact does not define that relationship. This will fail mapper configuration at import time. Either add the reciprocal relationship on Contact or revert to `backref` here.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 96:\n\n<comment>`back_populates` points to `Contact.resolved_entities`, but Contact does not define that relationship. This will fail mapper configuration at import time. Either add the reciprocal relationship on Contact or revert to `backref` here.</comment>\n\n<file context>\n@@ -69,17 +85,30 @@ class ResolvedEntity(Base):\n+\n     # Relationship to canonical contact\n-    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n+    canonical_contact = relationship(\"Contact\", back_populates=\"resolved_entities\")\n     \n+    # Relationship to evidence (will be created when Evidence table exists)\n</file context>\n```\n\n</details>\n\n```suggestion\n    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n```",
+      "suggestions": [
+        {
+          "code": "    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 96:\n\n<comment>`back_populates` points to `Contact.resolved_entities`, but Contact does not define that relationship. This will fail mapper configuration at import time. Either add the reciprocal relationship on Contact or revert to `backref` here.</comment>\n\n<file context>\n@@ -69,17 +85,30 @@ class ResolvedEntity(Base):\n+\n     # Relationship to canonical contact\n-    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n+    canonical_contact = relationship(\"Contact\", back_populates=\"resolved_entities\")\n     \n+    # Relationship to evidence (will be created when Evidence table exists)\n</file context>\n```\n\n</details>\n\n```suggestion\n    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -69,17 +85,30 @@ class ResolvedEntity(Base):\n     source_urls = Column(JSON)  # merged source URLs\n     last_updated = Column(DateTime, server_default=func.now(), onupdate=func.now())\n     \n+    # State tracking fields (ADDED for pipeline state machine)\n+    pipeline_state = Column(String, default=PipelineState.SCRAPED.value, index=True)\n+    state_history = Column(JSON, default=list)  # Track state transitions\n+    quality_score = Column(Float, default=0.0)\n+    outreach_ready = Column(Boolean, default=False)\n+    last_verified_at = Column(DateTime)\n+\n     # Relationship to canonical contact\n-    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n+    canonical_contact = relationship(\"Contact\", back_populates=\"resolved_entities\")",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108951",
+      "tracked_at": "2026-03-04T06:42:20.287Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.287Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.288Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.776Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:26.342Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:28.720Z",
+          "details": "{\"patch\":\"--- a/app/models/staging.py\\n+++ b/app/models/staging.py\\n@@ -93,7 +93,7 @@\\n     properties = Column(JSON)  # Additional properties like follower count, genre, etc.\\n     created_at = Column(DateTime, server_default=func.now())\\n     \\n-    # Relationship\\n+    canonical_contact = relationship(\\\"Contact\\\", backref=\\\"resolved_entities\\\")\\n     entity = relationship(\\\"ResolvedEntity\\\", backref=\\\"graph_nodes\\\")\\n     \\n     # Indexes\\n\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:28.737Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606548722.patch\\\"\\nerror: patch failed: app/models/staging.py:93\\nerror: app/models/staging.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/models/staging.py\n+++ b/app/models/staging.py\n@@ -93,7 +93,7 @@\n     properties = Column(JSON)  # Additional properties like follower count, genre, etc.\n     created_at = Column(DateTime, server_default=func.now())\n     \n-    # Relationship\n+    canonical_contact = relationship(\"Contact\", backref=\"resolved_entities\")\n     entity = relationship(\"ResolvedEntity\", backref=\"graph_nodes\")\n     \n     # Indexes\n",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606548722.patch\"\nerror: patch failed: app/models/staging.py:93\nerror: app/models/staging.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108983",
+      "file": "alembic/versions/006_add_evidence_and_state_tracking.py",
+      "start_line": 21,
+      "end_line": 21,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateTable\\n\\nmetadata = MetaData()\\n\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=None))\\nEOF\\npython test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install sqlalchemy && python test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateIndex, CreateTable\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nmetadata = MetaData()\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=dialect()))\\nfor idx in table.indexes:\\n    print(CreateIndex(idx).compile(dialect=dialect()))\\nEOF\\npython test_alembic_op.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op2.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, JSON\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nctx = MigrationContext.configure(dialect=dialect())\\nop = Operations(ctx)\\n\\nprint(\\\"Add with default=list:\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c1\\\", JSON, default=list, nullable=True)))\\n\\nprint(\\\"Add with server_default='[]':\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c2\\\", JSON, server_default='[]', nullable=True)))\\nEOF\\npython test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install alembic && python test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"find . -name \\\"*.py\\\" -exec rg -H \\\"class .*ResolvedEntity\\\" {} \\\\;\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/models/staging.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_boolean_default.py\\nfrom sqlalchemy import Column, Boolean, text\\nfrom alembic.operations.ops import AddColumnOp\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects import postgresql, sqlite\\n\\nprint(\\\"Postgres:\\\")\\nprint(AddColumnOp.from_column_and_tablename(\\\"t\\\", Column(\\\"c\\\", Boolean, server_default=text('false'))).to_diff_tuple())\\nEOF\\npython test_boolean_default.py\"}}]}]} -->\nP2: Ineffective `default` parameter in Alembic; use `server_default` to set the database schema default.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 21:\n\n<comment>Ineffective `default` parameter in Alembic; use `server_default` to set the database schema default.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n+        sa.Column('url', sa.String, nullable=False),\n+        sa.Column('confidence', sa.Float, default=1.0),\n+        sa.Column('metadata', sa.JSON),  # Additional context like screenshot_hash, page_title, etc.\n+        sa.Column('created_at', sa.DateTime, server_default=sa.func.now()),\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 21:\n\n<comment>Ineffective `default` parameter in Alembic; use `server_default` to set the database schema default.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n+        sa.Column('url', sa.String, nullable=False),\n+        sa.Column('confidence', sa.Float, default=1.0),\n+        sa.Column('metadata', sa.JSON),  # Additional context like screenshot_hash, page_title, etc.\n+        sa.Column('created_at', sa.DateTime, server_default=sa.func.now()),\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,54 @@\n+\"\"\"add evidence table and state tracking fields to resolved_entities\"\"\"\n+from alembic import op\n+import sqlalchemy as sa\n+\n+# revision identifiers\n+revision = '006_add_evidence_and_state_tracking'\n+down_revision = '005_add_staging_and_graph_tables'\n+branch_labels = None\n+depends_on = None\n+\n+def upgrade():\n+    # Create evidence table\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n+        sa.Column('url', sa.String, nullable=False),\n+        sa.Column('confidence', sa.Float, default=1.0),",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108983",
+      "tracked_at": "2026-03-04T06:42:20.294Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.294Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.295Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.777Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:28.738Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:42:29.379Z",
+          "details": "{\"error\":\"Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py"
+    },
+    {
+      "id": "2882108961",
+      "file": "app/workers/scrape_worker.py",
+      "start_line": 254,
+      "end_line": 254,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":7,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/queue_adapter.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/spotify_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/youtube_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/instagram_scraper.py\"}},{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/scrapers/web_scraper.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/signal_normalizer_worker.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/workers/scrape_worker.py\"}}]}]} -->\nP2: Retry attempts never persist `_failure_count`, so jobs will be re-enqueued indefinitely and never hit the dead-letter cutoff. Persist the failure count in the payload when re-enqueueing and read it back on retry.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 254:\n\n<comment>Retry attempts never persist `_failure_count`, so jobs will be re-enqueued indefinitely and never hit the dead-letter cutoff. Persist the failure count in the payload when re-enqueueing and read it back on retry.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n-                        fail_job(job[\"job_id\"], str(e))\n-                        push_to_dead_letter(job, str(e))\n+                # Push to dead letter queue after 3 failures\n+                failure_count = job.get(\"_failure_count\", 0) + 1\n+                if failure_count >= 3:\n+                    push_to_dead_letter(job, str(e))\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/workers/scrape_worker.py, line 254:\n\n<comment>Retry attempts never persist `_failure_count`, so jobs will be re-enqueued indefinitely and never hit the dead-letter cutoff. Persist the failure count in the payload when re-enqueueing and read it back on retry.</comment>\n\n<file context>\n@@ -1,230 +1,280 @@\n-                        fail_job(job[\"job_id\"], str(e))\n-                        push_to_dead_letter(job, str(e))\n+                # Push to dead letter queue after 3 failures\n+                failure_count = job.get(\"_failure_count\", 0) + 1\n+                if failure_count >= 3:\n+                    push_to_dead_letter(job, str(e))\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -1,230 +1,280 @@\n \"\"\"\n-Scrape Worker - processes scraping jobs from the queue\n+Scrape Worker - Consumes scraping jobs from Redis queue\n+\n+This worker continuously polls the Redis queue for scraping jobs,\n+executes the appropriate scraper, creates raw signal records,\n+and triggers the next pipeline stage (normalization).\n+\n+Usage:\n+    python -m app.workers.scrape_worker\n+\n+Environment Variables:\n+    DATABASE_URL: Database connection string\n+    REDIS_URL: Redis connection URL\n+    SPOTIFY_CLIENT_ID: Spotify API client ID\n+    SPOTIFY_CLIENT_SECRET: Spotify API client secret\n+    YOUTUBE_API_KEY: YouTube API key\n \"\"\"\n import asyncio\n-import aiohttp\n import json\n-import time\n-from typing import Dict, Any, Optional\n import logging\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\n-from app.models.staging import ScraperRawSignal\n-from app.models.database import SessionLocal, Contact\n-from sqlalchemy.orm import Session\n-from sqlalchemy import create_engine\n import os\n+import sys\n+from datetime import datetime\n+from typing import Dict, Any, Optional\n+from pathlib import Path\n+\n+# Add parent directory to path for imports\n+sys.path.insert(0, str(Path(__file__).parent.parent))\n+\n+from app.workers.queue_adapter import (\n+    dequeue_job, \n+    complete_job, \n+    fail_job, \n+    enqueue_job,\n+    push_to_dead_letter\n+)\n+from app.models.staging import ScraperRawSignal\n+from app.models.database import SessionLocal, engine, Base\n+from loguru import logger\n+\n+# Configure logging\n+logging.basicConfig(\n+    level=logging.INFO,\n+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'\n+)\n+log = logger.bind(service=\"scrape-worker\")\n \n-logger = logging.getLogger(__name__)\n+# Create tables if they don't exist\n+Base.metadata.create_all(bind=engine)\n \n-DATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./artist_promo.db\")\n-engine = create_engine(DATABASE_URL)\n+# Scraper registry - lazy loaded to avoid circular imports\n+SCRAPER_MAP = {\n+    \"spotify\": None,\n+    \"youtube\": None,\n+    \"instagram\": None,\n+    \"web\": None,\n+}\n \n-class ScrapeWorker:\n-    def __init__(self):\n-        self.session = None\n-        self.running = True\n \n-    async def initialize_session(self):\n-        \"\"\"Initialize HTTP session\"\"\"\n-        if self.session is None:\n-            timeout = aiohttp.ClientTimeout(total=30)\n-            self.session = aiohttp.ClientSession(timeout=timeout)\n-        return self.session\n+def get_scraper(platform: str):\n+    \"\"\"\n+    Lazy loader for scrapers to avoid circular imports\n+    \n+    Args:\n+        platform: Platform name (spotify, youtube, instagram, web)\n+        \n+    Returns:\n+        Scraper class for the platform\n+    \"\"\"\n+    if platform == \"spotify\":\n+        from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n+        return SpotifyPlaylistScraper\n+    elif platform == \"youtube\":\n+        from app.scrapers.youtube_scraper import YouTubeChannelScraper\n+        return YouTubeChannelScraper\n+    elif platform == \"instagram\":\n+        from app.scrapers.instagram_scraper import InstagramScraper\n+        return InstagramScraper\n+    elif platform == \"web\":\n+        from app.scrapers.web_scraper import WebContactScraper\n+        return WebContactScraper\n+    else:\n+        raise ValueError(f\"Unknown platform: {platform}\")\n+\n \n-    async def process_job(self, job: Dict[str, Any]) -> Dict[str, Any]:\n-        \"\"\"Process a single scraping job\"\"\"\n-        job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+async def execute_scraper(job: Dict[str, Any]) -> Dict[str, Any]:\n+    \"\"\"\n+    Execute scraper based on job type and create raw signal\n+    \n+    Args:\n+        job: Job payload from queue\n         \n-        if job_type.startswith(\"scrape:\"):\n-            platform = job_type.split(\":\")[1].split(\"_\")[0]  # e.g., \"spotify\"\n+    Returns:\n+        Result dict with raw_signal_id and stats\n+        \n+    Raises:\n+        ValueError: If job type is invalid or scraper not found\n+        Exception: If scraper execution fails\n+    \"\"\"\n+    job_type = job[\"type\"]  # e.g., \"scrape:spotify_playlist\"\n+    job_id = job[\"job_id\"]\n+    params = job.get(\"params\", {})\n+    dedupe_key = job.get(\"dedupe_key\")\n+    \n+    log.info(f\"Executing job {job_id} of type {job_type}\")\n+    \n+    if not job_type.startswith(\"scrape:\"):\n+        raise ValueError(f\"Invalid job type: {job_type}\")\n+    \n+    # Extract platform from job type\n+    # Format: \"scrape:spotify_playlist\" -> \"spotify\"\n+    platform = job_type.split(\":\")[1].split(\"_\")[0]\n+    \n+    # Get scraper class\n+    try:\n+        scraper_cls = get_scraper(platform)\n+    except ValueError as e:\n+        log.error(f\"Unknown platform {platform}: {str(e)}\")\n+        raise\n+    \n+    scraper = scraper_cls()\n+    \n+    try:\n+        # Execute scraper (most scrapers are sync, wrap in async)\n+        loop = asyncio.get_event_loop()\n+        results = await loop.run_in_executor(\n+            None, \n+            lambda: scraper.scrape(**params)\n+        )\n+        \n+        # Handle None results\n+        if results is None:\n+            results = []\n+        \n+        # Get scraper stats\n+        stats = scraper.get_stats() if hasattr(scraper, 'get_stats') else {}\n+        \n+        # Create raw signal record\n+        db = SessionLocal()\n+        try:\n+            raw_signal = ScraperRawSignal(\n+                job_id=job_id,\n+                source_platform=platform,\n+                payload={\n+                    \"results\": results,\n+                    \"stats\": stats,\n+                    \"scraped_at\": datetime.utcnow().isoformat()\n+                },\n+                dedupe_key=dedupe_key or f\"{platform}:{job_id}\"\n+            )\n+            db.add(raw_signal)\n+            db.commit()\n+            db.refresh(raw_signal)\n             \n-            # Import the appropriate scraper\n-            if platform == \"spotify\":\n-                from app.scrapers.spotify_scraper import SpotifyPlaylistScraper\n-                scraper_cls = SpotifyPlaylistScraper\n-            elif platform == \"youtube\":\n-                from app.scrapers.youtube_scraper import YouTubeChannelScraper\n-                scraper_cls = YouTubeChannelScraper\n-            elif platform == \"instagram\":\n-                from app.scrapers.instagram_scraper import InstagramScraper\n-                scraper_cls = InstagramScraper\n-            elif platform == \"web\":\n-                from app.scrapers.web_scraper import WebContactScraper\n-                scraper_cls = WebContactScraper\n-            else:\n-                raise ValueError(f\"Unknown scraper platform: {platform}\")\n+            log.info(\n+                f\"Created raw signal {raw_signal.id} for job {job_id}\",\n+                extra={\n+                    \"raw_signal_id\": raw_signal.id, \n+                    \"items_found\": len(results),\n+                    \"platform\": platform\n+                }\n+            )\n             \n-            # Create scraper instance\n-            scraper = scraper_cls()\n+            # Enqueue next pipeline stage: normalization\n+            enqueue_job(\n+                job_type=\"normalize:signals\",\n+                params={\"raw_signal_id\": raw_signal.id},\n+                source=\"worker\",\n+                priority=job.get(\"priority\", 5),\n+                dedupe_key=f\"normalize:{raw_signal.id}\"\n+            )\n             \n-            # Run the scrape with the provided parameters\n-            params = job.get(\"params\", {})\n+            return {\n+                \"raw_signal_id\": raw_signal.id,\n+                \"items_found\": len(results),\n+                \"platform\": platform,\n+                \"stats\": stats\n+            }\n             \n-            # Different scrapers expect different parameters\n-            # Check if the scraper method is async\n-            import inspect\n-            if platform == \"spotify\":\n-                if inspect.iscoroutinefunction(scraper.safe_scrape):\n-                    results = await scraper.safe_scrape(\n-                        genre=params.get(\"genre\", \"hip-hop\"),\n-                        min_followers=params.get(\"min_followers\", 500),\n-                        limit=params.get(\"limit\", 50)\n-                    )\n-                else:\n-                    results = scraper.safe_scrape(\n-                        genre=params.get(\"genre\", \"hip-hop\"),\n-                        min_followers=params.get(\"min_followers\", 500),\n-                        limit=params.get(\"limit\", 50)\n-                    )\n-            elif platform == \"youtube\":\n-                if inspect.iscoroutinefunction(scraper.safe_scrape):\n-                    results = await scraper.safe_scrape(\n-                        query=params.get(\"query\", \"hip hop playlist\"),\n-                        max_results=params.get(\"max_results\", 50)\n-                    )\n-                else:\n-                    results = scraper.safe_scrape(\n-                        query=params.get(\"query\", \"hip hop playlist\"),\n-                        max_results=params.get(\"max_results\", 50)\n-                    )\n-            elif platform == \"instagram\":\n-                if params.get(\"username\"):\n-                    if inspect.iscoroutinefunction(scraper.safe_scrape):\n-                        results = [await scraper.safe_scrape(username=params[\"username\"])]\n-                    else:\n-                        results = [scraper.safe_scrape(username=params[\"username\"])]\n-                else:\n-                    if inspect.iscoroutinefunction(scraper.safe_scrape):\n-                        results = await scraper.safe_scrape(hashtag=params.get(\"hashtag\"))\n-                    else:\n-                        results = scraper.safe_scrape(hashtag=params.get(\"hashtag\"))\n-            elif platform == \"web\":\n-                url = params.get(\"url\")\n-                if not url:\n-                    raise ValueError(\"Missing required 'url' parameter for web scraping\")\n-\n-                if inspect.iscoroutinefunction(scraper.safe_scrape):\n-                    results = await scraper.safe_scrape(url=url)\n-                else:\n-                    results = scraper.safe_scrape(url=url)\n-            else:\n-                results = []\n+        finally:\n+            db.close()\n             \n-            # Save raw signals to staging table\n-            db = SessionLocal()\n-            try:\n-                for result in results:\n-                    raw_signal = ScraperRawSignal(\n-                        job_id=job[\"job_id\"],\n-                        source_platform=platform,\n-                        payload=result,\n-                        dedupe_key=f\"{platform}:{result.get('id', result.get('platform_id', 'unknown'))}\"\n-                    )\n-                    db.add(raw_signal)\n-                \n-                db.commit()\n-                \n-                # After saving raw signals, queue normalization job\n-                from app.workers.queue_adapter import enqueue_job\n-                enqueue_job(\n-                    job_type=\"normalize:signals\",\n-                    params={\"raw_signal_job_id\": job[\"job_id\"]},\n-                    source=\"scrape_worker\",\n-                    priority=job.get(\"priority\", 5)\n-                )\n-                \n-                return {\n-                    \"status\": \"completed\",\n-                    \"results_count\": len(results),\n-                    \"raw_signals_saved\": len(results),\n-                    \"platform\": platform\n+    except Exception as e:\n+        log.error(f\"Scraper execution failed for job {job_id}: {str(e)}\", exc_info=True)\n+        raise\n+\n+\n+async def worker_loop():\n+    \"\"\"\n+    Main worker loop - continuously processes jobs from queue\n+    \n+    This loop:\n+    1. Polls Redis queue for new jobs\n+    2. Executes the appropriate scraper\n+    3. Creates raw signal records\n+    4. Triggers next pipeline stage\n+    5. Tracks job completion/failure\n+    \"\"\"\n+    log.info(\"Starting scrape worker loop...\")\n+    log.info(\"Listening on queue: queue:scrape\")\n+    log.info(f\"Database URL: {os.getenv('DATABASE_URL', 'not set')}\")\n+    log.info(f\"Redis URL: {os.getenv('REDIS_URL', 'not set')}\")\n+    \n+    while True:\n+        job = None\n+        try:\n+            # Dequeue job (blocking with timeout)\n+            job = dequeue_job(\"queue:scrape\", timeout=5)\n+            \n+            if not job:\n+                # No jobs available, wait before polling again\n+                await asyncio.sleep(1)\n+                continue\n+            \n+            log.info(\n+                f\"Processing job {job['job_id']}\",\n+                extra={\n+                    \"job_id\": job[\"job_id\"],\n+                    \"job_type\": job[\"type\"],\n+                    \"source\": job.get(\"source\", \"unknown\"),\n+                    \"priority\": job.get(\"priority\", 5)\n                 }\n-            except Exception as e:\n-                db.rollback()\n-                logger.error(f\"Error saving raw signals: {str(e)}\")\n-                raise\n-            finally:\n-                db.close()\n-        else:\n-            raise ValueError(f\"Unknown job type: {job_type}\")\n-\n-    async def run(self):\n-        \"\"\"Main worker loop\"\"\"\n-        logger.info(\"Starting Scrape Worker...\")\n-        \n-        while self.running:\n-            try:\n-                # Get a job from the scrape queue\n-                job = dequeue_job(\"queue:scrape\", timeout=5)\n+            )\n+            \n+            # Execute scraper\n+            result = await execute_scraper(job)\n+            \n+            # Mark job as completed\n+            complete_job(job[\"job_id\"], result)\n+            \n+            log.info(\n+                f\"Job {job['job_id']} completed successfully\",\n+                extra={\n+                    \"result\": result,\n+                    \"processing_time\": \"N/A\"  # Could add timing\n+                }\n+            )\n+            \n+        except asyncio.CancelledError:\n+            log.warning(\"Worker received shutdown signal, stopping...\")\n+            break\n+            \n+        except Exception as e:\n+            log.error(\n+                f\"Job {job.get('job_id', 'unknown') if job else 'unknown'} failed: {str(e)}\",\n+                exc_info=True\n+            )\n+            \n+            if job:\n+                # Mark job as failed\n+                fail_job(job[\"job_id\"], str(e))\n                 \n-                if job:\n-                    logger.info(f\"Processing job: {job['job_id']} - {job['type']}\")\n-                    \n-                    # Check for duplicate job using fingerprint\n-                    fp = fingerprint(job)\n-                    if seen_before(fp):\n-                        logger.info(f\"Skipping duplicate job: {job['job_id']}\")\n-                        continue\n-                    \n-                    mark_seen(fp)\n-                    \n-                    try:\n-                        # Process the job\n-                        result = await self.process_job(job)\n-                        \n-                        # Mark job as completed\n-                        complete_job(job[\"job_id\"], result)\n-                        \n-                        logger.info(f\"Job {job['job_id']} completed successfully\")\n-                        \n-                    except Exception as e:\n-                        logger.error(f\"Job {job['job_id']} failed: {str(e)}\")\n-                        fail_job(job[\"job_id\"], str(e))\n-                        push_to_dead_letter(job, str(e))\n+                # Push to dead letter queue after 3 failures\n+                failure_count = job.get(\"_failure_count\", 0) + 1",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108961",
+      "tracked_at": "2026-03-04T06:42:20.328Z",
+      "status": "patch_generated",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.328Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.329Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.779Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:29.381Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:42:55.211Z",
+          "details": "{\"patch\":\"--- a/app/workers/scrape_worker.py\\n+++ b/app/workers/scrape_worker.py\\n@@ -1,24 +1,270 @@\\n-\\\"\\\"\\\"\\n-Scrape Worker - processes scraping jobs from the queue\\n-\\\"\\\"\\\"\\n-import asyncio\\n-import aiohttp\\n-import json\\n-import time\\n-from typing import Dict, Any, Optional\\n-import logging\\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\\n-from app.models.staging import ScraperRawSignal\\n-from app.models.database import SessionLocal, Co\"}"
+        }
+      ],
+      "patch": "--- a/app/workers/scrape_worker.py\n+++ b/app/workers/scrape_worker.py\n@@ -1,24 +1,270 @@\n-\"\"\"\n-Scrape Worker - processes scraping jobs from the queue\n-\"\"\"\n-import asyncio\n-import aiohttp\n-import json\n-import time\n-from typing import Dict, Any, Optional\n-import logging\n-from app.workers.queue_adapter import dequeue_job, complete_job, fail_job, push_to_dead_letter, fingerprint, seen_before, mark_seen\n-from app.models.staging import ScraperRawSignal\n-from app.models.database import SessionLocal, Co"
+    },
+    {
+      "id": "2882108953",
+      "file": "app/models/staging.py",
+      "start_line": 212,
+      "end_line": 212,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"resolved_entities\\\" app --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"class Contact\\\" app/models --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/models/database.py\"}}]}]} -->\nP1: `back_populates=\"evidence_items\"` has no matching `ResolvedEntity.evidence_items` relationship (it is commented out), so mapper configuration will fail. Define the reciprocal relationship or use a `backref` here.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 212:\n\n<comment>`back_populates=\"evidence_items\"` has no matching `ResolvedEntity.evidence_items` relationship (it is commented out), so mapper configuration will fail. Define the reciprocal relationship or use a `backref` here.</comment>\n\n<file context>\n@@ -152,10 +184,36 @@ class JobTracker(Base):\n+    \n+    # Relationships\n+    entity = relationship(\"ResolvedEntity\", back_populates=\"evidence_items\")\n+    \n+    # Indexes for efficient querying\n+    __table_args__ = (\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 212:\n\n<comment>`back_populates=\"evidence_items\"` has no matching `ResolvedEntity.evidence_items` relationship (it is commented out), so mapper configuration will fail. Define the reciprocal relationship or use a `backref` here.</comment>\n\n<file context>\n@@ -152,10 +184,36 @@ class JobTracker(Base):\n+    \n+    # Relationships\n+    entity = relationship(\"ResolvedEntity\", back_populates=\"evidence_items\")\n+    \n+    # Indexes for efficient querying\n+    __table_args__ = (\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -152,10 +184,36 @@ class JobTracker(Base):\n     error_message = Column(String)\n     result = Column(JSON)  # Job result if successful\n     created_at = Column(DateTime, server_default=func.now())\n-    \n+\n     # Indexes\n     __table_args__ = (\n         Index('idx_job_tracker_job_id', 'job_id'),\n         Index('idx_job_tracker_type', 'job_type'),\n         Index('idx_job_tracker_status', 'status'),\n-    )\n\\ No newline at end of file\n+    )\n+\n+\n+class Evidence(Base):\n+    \"\"\"Machine-auditable evidence trail for contact trust scoring\"\"\"\n+    __tablename__ = \"evidence\"\n+    \n+    id = Column(Integer, primary_key=True)\n+    entity_id = Column(Integer, ForeignKey(\"resolved_entities.id\"), nullable=False, index=True)\n+    email = Column(String, nullable=False, index=True)\n+    source = Column(String, nullable=False)  # official_site, social_bio, mirror, whois, press_kit\n+    signal = Column(String, nullable=False)  # bio_email, whois_email, link_in_bio, etc.\n+    url = Column(String, nullable=False)\n+    confidence = Column(Float, default=1.0)\n+    metadata = Column(JSON)  # Additional context like screenshot_hash, page_title, etc.\n+    created_at = Column(DateTime, server_default=func.now())\n+    \n+    # Relationships\n+    entity = relationship(\"ResolvedEntity\", back_populates=\"evidence_items\")\n+    ",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108953",
+      "tracked_at": "2026-03-04T06:42:20.333Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.333Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.334Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.780Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:55.725Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:43:01.166Z",
+          "details": "{\"patch\":\"--- a/app/models/staging.py\\n+++ b/app/models/staging.py\\n@@ -131,27 +131,16 @@\\n     id = Column(Integer, primary_key=True)\\n     run_id = Column(String, unique=True, index=True)  # Unique run identifier\\n     cluster_id = Column(String)  # Cluster label\\n-    node_ids = Column(JSON)  # List of node IDs in this cluster\\n-    cluster_properties = Column(JSON)  # Properties like influence score, member count, etc.\\n-    created_at = Column(DateTime, server_default=func.now())\\n-    \\n-    # Indexes\\n-    __\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:01.202Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606581167.patch\\\"\\nerror: patch failed: app/models/staging.py:131\\nerror: app/models/staging.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/models/staging.py\n+++ b/app/models/staging.py\n@@ -131,27 +131,16 @@\n     id = Column(Integer, primary_key=True)\n     run_id = Column(String, unique=True, index=True)  # Unique run identifier\n     cluster_id = Column(String)  # Cluster label\n-    node_ids = Column(JSON)  # List of node IDs in this cluster\n-    cluster_properties = Column(JSON)  # Properties like influence score, member count, etc.\n-    created_at = Column(DateTime, server_default=func.now())\n-    \n-    # Indexes\n-    __",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606581167.patch\"\nerror: patch failed: app/models/staging.py:131\nerror: app/models/staging.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108958",
+      "file": "test_pipeline_fixes.py",
+      "start_line": 76,
+      "end_line": 76,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"ls -la test_pipeline_fixes.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n time test_pipeline_fixes.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | head -n 30\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | grep -A 10 \\\"def get_queue_length\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/workers/queue_adapter.py | grep -A 15 \\\"def get_job_status\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat requirements.txt | grep -i python\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python -c 'print(\\\"test\\\", exc_info=True)'\"}}]}]} -->\nP2: Add a `timeout` parameter to `requests.get()` to prevent the test script from hanging indefinitely if the server accepts the connection but does not respond.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At test_pipeline_fixes.py, line 76:\n\n<comment>Add a `timeout` parameter to `requests.get()` to prevent the test script from hanging indefinitely if the server accepts the connection but does not respond.</comment>\n\n<file context>\n@@ -0,0 +1,345 @@\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs/{job_id}/status\",\n+            headers=HEADERS\n+        )\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At test_pipeline_fixes.py, line 76:\n\n<comment>Add a `timeout` parameter to `requests.get()` to prevent the test script from hanging indefinitely if the server accepts the connection but does not respond.</comment>\n\n<file context>\n@@ -0,0 +1,345 @@\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs/{job_id}/status\",\n+            headers=HEADERS\n+        )\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,345 @@\n+\"\"\"\n+Test script to validate critical pipeline fixes\n+\n+This script tests:\n+1. Job enqueueing\n+2. Job status querying\n+3. Queue processing\n+4. Worker job consumption (requires workers running)\n+5. State transitions\n+6. Evidence storage\n+\n+Usage:\n+    python test_pipeline_fixes.py\n+\n+Requirements:\n+    - Redis running\n+    - Database running\n+    - API server running (for HTTP tests)\n+    - Workers running (for full pipeline tests)\n+\"\"\"\n+import asyncio\n+import requests\n+import time\n+import sys\n+import os\n+from datetime import datetime\n+\n+# Add parent directory to path\n+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n+\n+from app.workers.queue_adapter import enqueue_job, get_job_status, get_queue_length, r\n+\n+# Configuration\n+BASE_URL = os.getenv(\"API_URL\", \"http://localhost:8000\")\n+API_KEY = os.getenv(\"TEST_API_KEY\", \"test-api-key\")\n+\n+HEADERS = {\n+    \"Authorization\": f\"Bearer {API_KEY}\",\n+    \"Content-Type\": \"application/json\"\n+}\n+\n+\n+def test_job_enqueue():\n+    \"\"\"Test 1: Verify job can be enqueued\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 1: Job Enqueue\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\"genre\": \"hip-hop\", \"min_followers\": 1000},\n+            source=\"test\",\n+            priority=5\n+        )\n+        \n+        print(f\"✓ Enqueued job: {job_id}\")\n+        assert job_id is not None, \"Job ID should not be None\"\n+        assert len(job_id) > 0, \"Job ID should not be empty\"\n+        \n+        return job_id\n+        \n+    except Exception as e:\n+        print(f\"✗ FAILED: {str(e)}\")\n+        return None\n+\n+\n+def test_job_status(job_id):\n+    \"\"\"Test 2: Verify job status can be queried\"\"\"\n+    print(\"\\n\" + \"=\"*60)\n+    print(\"Test 2: Job Status Query\")\n+    print(\"=\"*60)\n+    \n+    try:\n+        response = requests.get(\n+            f\"{BASE_URL}/jobs/{job_id}/status\",",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108958",
+      "tracked_at": "2026-03-04T06:42:20.338Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.338Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.339Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.782Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:01.204Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:03.222Z",
+          "details": "{\"error\":\"Could not fetch file: test_pipeline_fixes.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: test_pipeline_fixes.py"
+    },
+    {
+      "id": "2882108971",
+      "file": "app/models/staging.py",
+      "start_line": 208,
+      "end_line": 208,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"resolved_entities\\\" app --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F \\\"class Contact\\\" app/models --glob '!node_modules/**'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/models/database.py\"}}]}]} -->\nP2: `metadata` is a reserved attribute name on SQLAlchemy declarative models, so mapping this column will fail. Rename the attribute (optionally keep the DB column name via `Column(\"metadata\", ...)`).\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 208:\n\n<comment>`metadata` is a reserved attribute name on SQLAlchemy declarative models, so mapping this column will fail. Rename the attribute (optionally keep the DB column name via `Column(\"metadata\", ...)`).</comment>\n\n<file context>\n@@ -152,10 +184,36 @@ class JobTracker(Base):\n+    url = Column(String, nullable=False)\n+    confidence = Column(Float, default=1.0)\n+    metadata = Column(JSON)  # Additional context like screenshot_hash, page_title, etc.\n+    created_at = Column(DateTime, server_default=func.now())\n+    \n+    # Relationships\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/models/staging.py, line 208:\n\n<comment>`metadata` is a reserved attribute name on SQLAlchemy declarative models, so mapping this column will fail. Rename the attribute (optionally keep the DB column name via `Column(\"metadata\", ...)`).</comment>\n\n<file context>\n@@ -152,10 +184,36 @@ class JobTracker(Base):\n+    url = Column(String, nullable=False)\n+    confidence = Column(Float, default=1.0)\n+    metadata = Column(JSON)  # Additional context like screenshot_hash, page_title, etc.\n+    created_at = Column(DateTime, server_default=func.now())\n+    \n+    # Relationships\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -152,10 +184,36 @@ class JobTracker(Base):\n     error_message = Column(String)\n     result = Column(JSON)  # Job result if successful\n     created_at = Column(DateTime, server_default=func.now())\n-    \n+\n     # Indexes\n     __table_args__ = (\n         Index('idx_job_tracker_job_id', 'job_id'),\n         Index('idx_job_tracker_type', 'job_type'),\n         Index('idx_job_tracker_status', 'status'),\n-    )\n\\ No newline at end of file\n+    )\n+\n+\n+class Evidence(Base):\n+    \"\"\"Machine-auditable evidence trail for contact trust scoring\"\"\"\n+    __tablename__ = \"evidence\"\n+    \n+    id = Column(Integer, primary_key=True)\n+    entity_id = Column(Integer, ForeignKey(\"resolved_entities.id\"), nullable=False, index=True)\n+    email = Column(String, nullable=False, index=True)\n+    source = Column(String, nullable=False)  # official_site, social_bio, mirror, whois, press_kit\n+    signal = Column(String, nullable=False)  # bio_email, whois_email, link_in_bio, etc.\n+    url = Column(String, nullable=False)\n+    confidence = Column(Float, default=1.0)\n+    metadata = Column(JSON)  # Additional context like screenshot_hash, page_title, etc.\n+    created_at = Column(DateTime, server_default=func.now())",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108971",
+      "tracked_at": "2026-03-04T06:42:20.343Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.343Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.344Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.784Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:03.224Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:43:06.499Z",
+          "details": "{\"patch\":\"--- a/app/models/staging.py\\n+++ b/app/models/staging.py\\n@@ -131,27 +131,16 @@\\n     id = Column(Integer, primary_key=True)\\n     run_id = Column(String, unique=True, index=True)  # Unique run identifier\\n     cluster_id = Column(String)  # Cluster label\\n-    node_ids = Column(JSON)  # List of node IDs in this cluster\\n-    cluster_properties = Column(JSON)  # Properties like influence score, member count, etc.\\n-    created_at = Column(DateTime, server_default=func.now())\\n-    \\n-    # Indexes\\n-    __\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:06.516Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606586500.patch\\\"\\nerror: patch failed: app/models/staging.py:131\\nerror: app/models/staging.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/models/staging.py\n+++ b/app/models/staging.py\n@@ -131,27 +131,16 @@\n     id = Column(Integer, primary_key=True)\n     run_id = Column(String, unique=True, index=True)  # Unique run identifier\n     cluster_id = Column(String)  # Cluster label\n-    node_ids = Column(JSON)  # List of node IDs in this cluster\n-    cluster_properties = Column(JSON)  # Properties like influence score, member count, etc.\n-    created_at = Column(DateTime, server_default=func.now())\n-    \n-    # Indexes\n-    __",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606586500.patch\"\nerror: patch failed: app/models/staging.py:131\nerror: app/models/staging.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108984",
+      "file": "alembic/versions/006_add_evidence_and_state_tracking.py",
+      "start_line": 17,
+      "end_line": 17,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateTable\\n\\nmetadata = MetaData()\\n\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=None))\\nEOF\\npython test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install sqlalchemy && python test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateIndex, CreateTable\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nmetadata = MetaData()\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=dialect()))\\nfor idx in table.indexes:\\n    print(CreateIndex(idx).compile(dialect=dialect()))\\nEOF\\npython test_alembic_op.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op2.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, JSON\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nctx = MigrationContext.configure(dialect=dialect())\\nop = Operations(ctx)\\n\\nprint(\\\"Add with default=list:\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c1\\\", JSON, default=list, nullable=True)))\\n\\nprint(\\\"Add with server_default='[]':\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c2\\\", JSON, server_default='[]', nullable=True)))\\nEOF\\npython test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install alembic && python test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"find . -name \\\"*.py\\\" -exec rg -H \\\"class .*ResolvedEntity\\\" {} \\\\;\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/models/staging.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_boolean_default.py\\nfrom sqlalchemy import Column, Boolean, text\\nfrom alembic.operations.ops import AddColumnOp\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects import postgresql, sqlite\\n\\nprint(\\\"Postgres:\\\")\\nprint(AddColumnOp.from_column_and_tablename(\\\"t\\\", Column(\\\"c\\\", Boolean, server_default=text('false'))).to_diff_tuple())\\nEOF\\npython test_boolean_default.py\"}}]}]} -->\nP2: Redundant index defined on `email` column.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 17:\n\n<comment>Redundant index defined on `email` column.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n</file context>\n```\n\n</details>\n\n```suggestion\n        sa.Column('email', sa.String, nullable=False),\n```",
+      "suggestions": [
+        {
+          "code": "        sa.Column('email', sa.String, nullable=False),",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 17:\n\n<comment>Redundant index defined on `email` column.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n</file context>\n```\n\n</details>\n\n```suggestion\n        sa.Column('email', sa.String, nullable=False),\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,54 @@\n+\"\"\"add evidence table and state tracking fields to resolved_entities\"\"\"\n+from alembic import op\n+import sqlalchemy as sa\n+\n+# revision identifiers\n+revision = '006_add_evidence_and_state_tracking'\n+down_revision = '005_add_staging_and_graph_tables'\n+branch_labels = None\n+depends_on = None\n+\n+def upgrade():\n+    # Create evidence table\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108984",
+      "tracked_at": "2026-03-04T06:42:20.348Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.348Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.349Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.785Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:06.517Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:09.220Z",
+          "details": "{\"error\":\"Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py"
+    },
+    {
+      "id": "2882108987",
+      "file": "alembic/versions/006_add_evidence_and_state_tracking.py",
+      "start_line": 31,
+      "end_line": 31,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateTable\\n\\nmetadata = MetaData()\\n\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=None))\\nEOF\\npython test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install sqlalchemy && python test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateIndex, CreateTable\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nmetadata = MetaData()\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=dialect()))\\nfor idx in table.indexes:\\n    print(CreateIndex(idx).compile(dialect=dialect()))\\nEOF\\npython test_alembic_op.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op2.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, JSON\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nctx = MigrationContext.configure(dialect=dialect())\\nop = Operations(ctx)\\n\\nprint(\\\"Add with default=list:\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c1\\\", JSON, default=list, nullable=True)))\\n\\nprint(\\\"Add with server_default='[]':\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c2\\\", JSON, server_default='[]', nullable=True)))\\nEOF\\npython test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install alembic && python test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"find . -name \\\"*.py\\\" -exec rg -H \\\"class .*ResolvedEntity\\\" {} \\\\;\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/models/staging.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_boolean_default.py\\nfrom sqlalchemy import Column, Boolean, text\\nfrom alembic.operations.ops import AddColumnOp\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects import postgresql, sqlite\\n\\nprint(\\\"Postgres:\\\")\\nprint(AddColumnOp.from_column_and_tablename(\\\"t\\\", Column(\\\"c\\\", Boolean, server_default=text('false'))).to_diff_tuple())\\nEOF\\npython test_boolean_default.py\"}}]}]} -->\nP2: Ineffective `default` parameters in Alembic `add_column`; use `server_default` to set database defaults.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 31:\n\n<comment>Ineffective `default` parameters in Alembic `add_column`; use `server_default` to set database defaults.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+    )\n+    \n+    # Add state tracking fields to resolved_entities\n+    op.add_column('resolved_entities', sa.Column('pipeline_state', sa.String, default='scraped', nullable=True))\n+    op.add_column('resolved_entities', sa.Column('state_history', sa.JSON, default=list, nullable=True))\n+    op.add_column('resolved_entities', sa.Column('quality_score', sa.Float, default=0.0, nullable=True))\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 31:\n\n<comment>Ineffective `default` parameters in Alembic `add_column`; use `server_default` to set database defaults.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+    )\n+    \n+    # Add state tracking fields to resolved_entities\n+    op.add_column('resolved_entities', sa.Column('pipeline_state', sa.String, default='scraped', nullable=True))\n+    op.add_column('resolved_entities', sa.Column('state_history', sa.JSON, default=list, nullable=True))\n+    op.add_column('resolved_entities', sa.Column('quality_score', sa.Float, default=0.0, nullable=True))\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,54 @@\n+\"\"\"add evidence table and state tracking fields to resolved_entities\"\"\"\n+from alembic import op\n+import sqlalchemy as sa\n+\n+# revision identifiers\n+revision = '006_add_evidence_and_state_tracking'\n+down_revision = '005_add_staging_and_graph_tables'\n+branch_labels = None\n+depends_on = None\n+\n+def upgrade():\n+    # Create evidence table\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n+        sa.Column('signal', sa.String, nullable=False),  # bio_email, whois_email, link_in_bio, etc.\n+        sa.Column('url', sa.String, nullable=False),\n+        sa.Column('confidence', sa.Float, default=1.0),\n+        sa.Column('metadata', sa.JSON),  # Additional context like screenshot_hash, page_title, etc.\n+        sa.Column('created_at', sa.DateTime, server_default=sa.func.now()),\n+        sa.Index('idx_evidence_entity', 'entity_id'),\n+        sa.Index('idx_evidence_email', 'email'),\n+        sa.Index('idx_evidence_source', 'source'),\n+        sa.Index('idx_evidence_created', 'created_at')\n+    )\n+    \n+    # Add state tracking fields to resolved_entities\n+    op.add_column('resolved_entities', sa.Column('pipeline_state', sa.String, default='scraped', nullable=True))",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108987",
+      "tracked_at": "2026-03-04T06:42:20.354Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.354Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.356Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.788Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:09.223Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:10.194Z",
+          "details": "{\"error\":\"Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py"
+    },
+    {
+      "id": "2882108955",
+      "file": "app/api/main.py",
+      "start_line": 209,
+      "end_line": 209,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":9,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg \\\"def enqueue_job\\\" -A 5\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"def cancel_job\\\" -n\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat -n app/api/main.py | rg \\\"def cancel_job\\\" -A 35\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '390,465p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python -m py_compile app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"^import\\\"\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"json\\\" -n | head -n 10\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '282,297p' app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/api/main.py | rg \\\"import json\\\"\"}}]}]} -->\nP2: Fetching all jobs via `hgetall` into memory does not scale and defeats the purpose of the `limit` parameter.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 209:\n\n<comment>Fetching all jobs via `hgetall` into memory does not scale and defeats the purpose of the `limit` parameter.</comment>\n\n<file context>\n@@ -150,6 +150,158 @@ async def get_metrics():\n+    import json\n+    \n+    # Get all jobs from hash\n+    jobs_data = r.hgetall(\"jobs\")\n+    \n+    jobs = []\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 209:\n\n<comment>Fetching all jobs via `hgetall` into memory does not scale and defeats the purpose of the `limit` parameter.</comment>\n\n<file context>\n@@ -150,6 +150,158 @@ async def get_metrics():\n+    import json\n+    \n+    # Get all jobs from hash\n+    jobs_data = r.hgetall(\"jobs\")\n+    \n+    jobs = []\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -150,6 +150,158 @@ async def get_metrics():\n     \"\"\"Prometheus metrics endpoint\"\"\"\n     return await metrics_endpoint()\n \n+\n+# ==================== JOB MANAGEMENT ENDPOINTS ====================\n+\n+@app.get(\"/jobs/{job_id}/status\")\n+async def get_job_status_endpoint(\n+    job_id: str,\n+    current_user: dict = Depends(get_current_user)\n+):\n+    \"\"\"\n+    Get status of a queued/completed job\n+    \n+    Returns the current status of a job including:\n+    - status: queued, running, completed, failed\n+    - type: job type (e.g., scrape:spotify_playlist)\n+    - queue: which queue the job is in\n+    - created: when the job was created\n+    - completed: when the job completed (if applicable)\n+    - result: job result (if completed)\n+    - error: error message (if failed)\n+    \"\"\"\n+    from app.workers.queue_adapter import get_job_status\n+    \n+    status = get_job_status(job_id)\n+    \n+    if status.get(\"status\") == \"unknown\":\n+        raise HTTPException(status_code=404, detail=f\"Job {job_id} not found\")\n+    \n+    return {\n+        \"job_id\": job_id,\n+        \"status\": status.get(\"status\"),\n+        \"type\": status.get(\"type\"),\n+        \"queue\": status.get(\"queue\"),\n+        \"created\": status.get(\"created\"),\n+        \"completed\": status.get(\"completed\"),\n+        \"result\": status.get(\"result\"),\n+        \"error\": status.get(\"error\")\n+    }\n+\n+\n+@app.get(\"/jobs\")\n+async def list_jobs(\n+    status: Optional[str] = Query(None, description=\"Filter by status (queued, running, completed, failed)\"),\n+    job_type: Optional[str] = Query(None, description=\"Filter by job type\"),\n+    limit: int = Query(default=50, le=100, description=\"Maximum number of jobs to return\"),\n+    current_user: dict = Depends(get_current_user)\n+):\n+    \"\"\"\n+    List jobs with optional filtering\n+    \n+    Returns a paginated list of jobs with their current status.\n+    Jobs are sorted by creation date (newest first).\n+    \"\"\"\n+    from app.workers.queue_adapter import r\n+    import json\n+    \n+    # Get all jobs from hash\n+    jobs_data = r.hgetall(\"jobs\")",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108955",
+      "tracked_at": "2026-03-04T06:42:20.360Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.360Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.361Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.789Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:10.196Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:43:15.917Z",
+          "details": "{\"patch\":\"--- a/app/api/main.py\\n+++ b/app/api/main.py\\n@@ -186,27 +186,31 @@\\n     email: Optional[EmailStr]\\n     contact_type: str\\n     priority_score: float\\n-    follower_count: int\\n-    verified: bool\\n-\\n-class ExportRequest(BaseModel):\\n-    contact_type: Optional[str] = None\\n-    min_score: float = 0.0\\n-    limit: int = 1000\\n-\\n-\\n-# ==================== SCRAPER ENDPOINTS ====================\\n-\\n-@app.post(\\\"/scrape/spotify\\\")\\n-async def scrape_spotify(\\n-    request: ScraperRequest,\\n-    background_tasks: Bac\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:15.958Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-FgJZ4I/patch-1772606595919.patch\\\"\\nerror: patch failed: app/api/main.py:186\\nerror: app/api/main.py: patch does not apply\\n\"}"
+        }
+      ],
+      "patch": "--- a/app/api/main.py\n+++ b/app/api/main.py\n@@ -186,27 +186,31 @@\n     email: Optional[EmailStr]\n     contact_type: str\n     priority_score: float\n-    follower_count: int\n-    verified: bool\n-\n-class ExportRequest(BaseModel):\n-    contact_type: Optional[str] = None\n-    min_score: float = 0.0\n-    limit: int = 1000\n-\n-\n-# ==================== SCRAPER ENDPOINTS ====================\n-\n-@app.post(\"/scrape/spotify\")\n-async def scrape_spotify(\n-    request: ScraperRequest,\n-    background_tasks: Bac",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-FgJZ4I/patch-1772606595919.patch\"\nerror: patch failed: app/api/main.py:186\nerror: app/api/main.py: patch does not apply\n"
+    },
+    {
+      "id": "2882108974",
+      "file": "app/utils/pipeline_orchestrator.py",
+      "start_line": 93,
+      "end_line": 97,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":7,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/utils/pipeline_orchestrator.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/models/staging.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"get_code_context_exa\",\"input\":{\"query\":\"SQLAlchemy JSON column in-place list append not persisted unless using MutableList or reassign state_history\",\"tokensNum\":4500}}]}]} -->\nP2: `state_history.append(...)` mutates a JSON list in-place, which SQLAlchemy doesn’t track for dirty updates. This can cause state history entries to be dropped after the first transition. Reassign a new list (or use MutableList) so the change is persisted.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/utils/pipeline_orchestrator.py, line 93:\n\n<comment>`state_history.append(...)` mutates a JSON list in-place, which SQLAlchemy doesn’t track for dirty updates. This can cause state history entries to be dropped after the first transition. Reassign a new list (or use MutableList) so the change is persisted.</comment>\n\n<file context>\n@@ -46,33 +46,87 @@ def can_advance_state(self, current_state: PipelineState, new_state: PipelineSta\n+                # Track in history\n+                if not entity.state_history:\n+                    entity.state_history = []\n+                entity.state_history.append({\n+                    \"from\": old_state,\n+                    \"to\": new_state.value,\n</file context>\n```\n\n</details>\n\n```suggestion\n                entity.state_history = (entity.state_history or []) + [{\n                    \"from\": old_state,\n                    \"to\": new_state.value,\n                    \"timestamp\": datetime.utcnow().isoformat()\n                }]\n```",
+      "suggestions": [
+        {
+          "code": "                entity.state_history = (entity.state_history or []) + [{\n                    \"from\": old_state,\n                    \"to\": new_state.value,\n                    \"timestamp\": datetime.utcnow().isoformat()\n                }]",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/utils/pipeline_orchestrator.py, line 93:\n\n<comment>`state_history.append(...)` mutates a JSON list in-place, which SQLAlchemy doesn’t track for dirty updates. This can cause state history entries to be dropped after the first transition. Reassign a new list (or use MutableList) so the change is persisted.</comment>\n\n<file context>\n@@ -46,33 +46,87 @@ def can_advance_state(self, current_state: PipelineState, new_state: PipelineSta\n+                # Track in history\n+                if not entity.state_history:\n+                    entity.state_history = []\n+                entity.state_history.append({\n+                    \"from\": old_state,\n+                    \"to\": new_state.value,\n</file context>\n```\n\n</details>\n\n```suggestion\n                entity.state_history = (entity.state_history or []) + [{\n                    \"from\": old_state,\n                    \"to\": new_state.value,\n                    \"timestamp\": datetime.utcnow().isoformat()\n                }]\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -46,33 +46,87 @@ def can_advance_state(self, current_state: PipelineState, new_state: PipelineSta\n     \n     def advance_state(self, record_id: int, new_state: PipelineState,\n                      entity_type: str = \"resolved_entity\") -> bool:\n-        \"\"\"Advance a record to a new state\"\"\"\n-        # We can't validate the transition without knowing the current state\n-        # So we'll just proceed with the state update\n+        \"\"\"\n+        Advance a record to a new state with validation\n+        \n+        Args:\n+            record_id: ID of the record to update\n+            new_state: Target pipeline state\n+            entity_type: Type of entity (resolved_entity, contact, raw_signal)\n+            \n+        Returns:\n+            True if state was advanced successfully, False otherwise\n+        \"\"\"\n+        from loguru import logger\n         \n         db = SessionLocal()\n         try:\n             if entity_type == \"resolved_entity\":\n                 entity = db.query(ResolvedEntity).filter(ResolvedEntity.id == record_id).first()\n-                if entity:\n-                    entity.last_updated = datetime.utcnow()\n-                    # In a real system, you'd have a state field\n-                    # For now, we'll just log the transition\n-                    print(f\"Advanced entity {record_id} to {new_state.value}\")\n-                    db.commit()  # Commit the changes\n-                    return True\n+                if not entity:\n+                    logger.warning(f\"Entity {record_id} not found\")\n+                    return False\n+                \n+                # Get current state\n+                current_state_str = entity.pipeline_state or PipelineState.SCRAPED.value\n+                try:\n+                    current_state = PipelineState(current_state_str)\n+                except ValueError:\n+                    # Invalid state string, default to SCRAPED\n+                    current_state = PipelineState.SCRAPED\n+                \n+                # Validate transition\n+                if new_state not in self.state_transitions.get(current_state, []):\n+                    logger.error(\n+                        f\"Invalid state transition from {current_state.value} to {new_state.value}\",\n+                        extra={\"entity_id\": record_id, \"current_state\": current_state.value, \"new_state\": new_state.value}\n+                    )\n+                    return False\n+                \n+                # Update state\n+                old_state = entity.pipeline_state\n+                entity.pipeline_state = new_state.value\n+                \n+                # Track in history\n+                if not entity.state_history:\n+                    entity.state_history = []\n+                entity.state_history.append({\n+                    \"from\": old_state,\n+                    \"to\": new_state.value,\n+                    \"timestamp\": datetime.utcnow().isoformat()\n+                })",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108974",
+      "tracked_at": "2026-03-04T06:42:20.365Z",
+      "status": "patch_generated",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.365Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.366Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.791Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:15.960Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:43:19.240Z",
+          "details": "{\"patch\":\"--- a/app/utils/pipeline_orchestrator.py\\n+++ b/app/utils/pipeline_orchestrator.py\\n@@ -90,11 +90,11 @@\\n         staging_contacts = []\\n         \\n         # Extract emails from various sources\\n-        emails = self._extract_emails_from_payload(payload)\\n-        \\n-        # Extract other contact info\\n-        name = payload.get('name') or payload.get('display_name') or payload.get('full_name')\\n-        bio = payload.get('bio') or payload.get('description')\\n+                entity.state_history = (e\"}"
+        }
+      ],
+      "patch": "--- a/app/utils/pipeline_orchestrator.py\n+++ b/app/utils/pipeline_orchestrator.py\n@@ -90,11 +90,11 @@\n         staging_contacts = []\n         \n         # Extract emails from various sources\n-        emails = self._extract_emails_from_payload(payload)\n-        \n-        # Extract other contact info\n-        name = payload.get('name') or payload.get('display_name') or payload.get('full_name')\n-        bio = payload.get('bio') or payload.get('description')\n+                entity.state_history = (e"
+    },
+    {
+      "id": "2882108986",
+      "file": "alembic/versions/006_add_evidence_and_state_tracking.py",
+      "start_line": 16,
+      "end_line": 16,
+      "type": "suggested_change",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateTable\\n\\nmetadata = MetaData()\\n\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=None))\\nEOF\\npython test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install sqlalchemy && python test_alembic.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, String, Index\\nfrom sqlalchemy.schema import CreateIndex, CreateTable\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nmetadata = MetaData()\\ntable = Table(\\n    'evidence', metadata,\\n    Column('id', Integer, primary_key=True),\\n    Column('entity_id', Integer, index=True),\\n    Column('email', String, index=True),\\n    Index('idx_evidence_entity', 'entity_id'),\\n    Index('idx_evidence_email', 'email')\\n)\\n\\nprint(CreateTable(table).compile(dialect=dialect()))\\nfor idx in table.indexes:\\n    print(CreateIndex(idx).compile(dialect=dialect()))\\nEOF\\npython test_alembic_op.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_alembic_op2.py\\nfrom sqlalchemy import MetaData, Table, Column, Integer, JSON\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects.postgresql import dialect\\n\\nctx = MigrationContext.configure(dialect=dialect())\\nop = Operations(ctx)\\n\\nprint(\\\"Add with default=list:\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c1\\\", JSON, default=list, nullable=True)))\\n\\nprint(\\\"Add with server_default='[]':\\\")\\nprint(op.impl.add_column(\\\"t\\\", Column(\\\"c2\\\", JSON, server_default='[]', nullable=True)))\\nEOF\\npython test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"pip install alembic && python test_alembic_op2.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"find . -name \\\"*.py\\\" -exec rg -H \\\"class .*ResolvedEntity\\\" {} \\\\;\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat app/models/staging.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"cat << 'EOF' > test_boolean_default.py\\nfrom sqlalchemy import Column, Boolean, text\\nfrom alembic.operations.ops import AddColumnOp\\nfrom alembic.migration import MigrationContext\\nfrom alembic.operations import Operations\\nfrom sqlalchemy.dialects import postgresql, sqlite\\n\\nprint(\\\"Postgres:\\\")\\nprint(AddColumnOp.from_column_and_tablename(\\\"t\\\", Column(\\\"c\\\", Boolean, server_default=text('false'))).to_diff_tuple())\\nEOF\\npython test_boolean_default.py\"}}]}]} -->\nP2: Redundant index defined on `entity_id` column.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 16:\n\n<comment>Redundant index defined on `entity_id` column.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n</file context>\n```\n\n</details>\n\n```suggestion\n        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False),\n```",
+      "suggestions": [
+        {
+          "code": "        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False),",
+          "source": "github",
+          "section": "suggestion"
+        }
+      ],
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At alembic/versions/006_add_evidence_and_state_tracking.py, line 16:\n\n<comment>Redundant index defined on `entity_id` column.</comment>\n\n<file context>\n@@ -0,0 +1,54 @@\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),\n+        sa.Column('email', sa.String, nullable=False, index=True),\n+        sa.Column('source', sa.String, nullable=False),  # official_site, social_bio, mirror, whois, press_kit\n</file context>\n```\n\n</details>\n\n```suggestion\n        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False),\n```",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "7ed277b19675fdaeedb95c224c3a5ffc4e1529b0",
+      "diff_hunk": "@@ -0,0 +1,54 @@\n+\"\"\"add evidence table and state tracking fields to resolved_entities\"\"\"\n+from alembic import op\n+import sqlalchemy as sa\n+\n+# revision identifiers\n+revision = '006_add_evidence_and_state_tracking'\n+down_revision = '005_add_staging_and_graph_tables'\n+branch_labels = None\n+depends_on = None\n+\n+def upgrade():\n+    # Create evidence table\n+    op.create_table(\n+        'evidence',\n+        sa.Column('id', sa.Integer, primary_key=True),\n+        sa.Column('entity_id', sa.Integer, sa.ForeignKey('resolved_entities.id'), nullable=False, index=True),",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882108986",
+      "tracked_at": "2026-03-04T06:42:20.370Z",
+      "status": "failed",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:42:20.370Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:42:20.371Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:42:21.792Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:43:19.742Z"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-04T06:43:23.303Z",
+          "details": "{\"error\":\"Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py\"}"
+        }
+      ],
+      "error": "Could not fetch file: alembic/versions/006_add_evidence_and_state_tracking.py"
+    },
+    {
+      "id": "2882130532",
+      "file": "app/api/main.py",
+      "start_line": 656,
+      "end_line": 656,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":8,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"git diff -- app/api/main.py | sed -n '1,260p'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python - <<'PY'\\nfrom fastapi import FastAPI\\napp=FastAPI()\\n@app.post('/x')\\n@app.post('/x')\\nasync def f():\\n    return {'a':1}\\nprint('routes',[(r.path, getattr(r,'methods',None)) for r in app.routes if hasattr(r,'methods') and 'POST' in r.methods])\\nprint('count',sum(1 for r in app.routes if hasattr(r,'methods') and 'POST' in r.methods and r.path=='/x'))\\nprint('openapi paths',app.openapi()['paths'])\\nPY\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"get_code_context_exa\",\"input\":{\"query\":\"FastAPI applying same @app.post decorator twice on one function duplicate route registration behavior\",\"tokensNum\":3000}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F 'import json' app/api/main.py && rg -n -F '@app.post(\\\"/export/csv\\\")' app/api/main.py && rg -n -F 'job_id = enqueue_job(' app/api/main.py | head -n 8\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '350,390p;648,670p' app/api/main.py | nl -ba\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"awk 'NR>=358 && NR<=382 {printf \\\"%d:%s\\\\n\\\", NR, $0} NR>=652 && NR<=666 {printf \\\"%d:%s\\\\n\\\", NR, $0}' app/api/main.py\"}}]}]} -->\nP2: A duplicate `@app.post(\"/export/csv\")` decorator block was added, creating redundant route declaration code.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 656:\n\n<comment>A duplicate `@app.post(\"/export/csv\")` decorator block was added, creating redundant route declaration code.</comment>\n\n<file context>\n@@ -635,17 +640,21 @@ async def score_contacts(db: Session = Depends(get_db)):\n \n+# ==================== EXPORT ENDPOINTS ====================\n+\n+@app.post(\"/export/csv\")\n+\n \n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 656:\n\n<comment>A duplicate `@app.post(\"/export/csv\")` decorator block was added, creating redundant route declaration code.</comment>\n\n<file context>\n@@ -635,17 +640,21 @@ async def score_contacts(db: Session = Depends(get_db)):\n \n+# ==================== EXPORT ENDPOINTS ====================\n+\n+@app.post(\"/export/csv\")\n+\n \n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "ca822918e0acc2aedea8f1cd406eb34031c24a5b",
+      "diff_hunk": "@@ -440,17 +640,21 @@ async def score_contacts(db: Session = Depends(get_db)):\n             llm_quality_score=contact.llm_quality_score,\n             contact_type=contact.contact_type.value if contact.contact_type else \"playlist_curator\"\n         )\n-        \n+\n         contact.priority_score = score\n         updated_count += 1\n-    \n+\n     db.commit()\n-    \n+\n     return {\n         \"status\": \"success\",\n         \"updated_count\": updated_count\n     }\n \n+# ==================== EXPORT ENDPOINTS ====================\n+\n+@app.post(\"/export/csv\")",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882130532",
+      "tracked_at": "2026-03-04T06:49:50.202Z",
+      "status": "patch_generated",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:49:50.202Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:49:50.205Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:49:50.392Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:49:51.191Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:50:57.275Z",
+          "details": "{\"patch\":\"--- a/app/api/main.py\\n+++ b/app/api/main.py\\n@@ -633,27 +633,28 @@\\n     updated_count = 0\\n \\n     for contact in contacts:\\n-        score = scorer.calculate_priority_score(\\n-            follower_count=contact.follower_count,\\n-            last_active=contact.last_active_at,\\n-            engagement_rate=contact.engagement_rate,\\n-            llm_quality_score=contact.llm_quality_score,\\n-            contact_type=contact.contact_type.value if contact.contact_type else \\\"playlist_curator\\\"\\n-        )\\n-\\n- \"}"
+        }
+      ],
+      "patch": "--- a/app/api/main.py\n+++ b/app/api/main.py\n@@ -633,27 +633,28 @@\n     updated_count = 0\n \n     for contact in contacts:\n-        score = scorer.calculate_priority_score(\n-            follower_count=contact.follower_count,\n-            last_active=contact.last_active_at,\n-            engagement_rate=contact.engagement_rate,\n-            llm_quality_score=contact.llm_quality_score,\n-            contact_type=contact.contact_type.value if contact.contact_type else \"playlist_curator\"\n-        )\n-\n- "
+    },
+    {
+      "id": "proposed-fix-1772606990214",
+      "file": "",
+      "start_line": 0,
+      "end_line": 0,
+      "type": "bot_review",
+      "content": "**2 issues found across 1 file (changes from recent commits).**\n\n<details>\n<summary>Prompt for AI agents (unresolved issues)</summary>\n\n```text\n\nCheck if these issues are valid — if so, understand the root cause of each and fix them. If appropriate, use sub-agents to investigate and fix each issue separately.\n\n\n<file name=\"app/api/main.py\">\n\n<violation number=\"1\" location=\"app/api/main.py:366\">\nP0: A partially inserted duplicate `enqueue_job` call breaks parsing of the Spotify endpoint and can prevent the service from starting.</violation>\n\n<violation number=\"2\" location=\"app/api/main.py:656\">\nP2: A duplicate `@app.post(\"/export/csv\")` decorator block was added, creating redundant route declaration code.</violation>\n</file>\n```\n\n</details>\n\n<sub>Reply with feedback, questions, or to request a fix. Tag `@cubic-dev-ai` to re-run a review.</sub>\n\n<!-- cubic:attribution IMPORTANT: This code review was authored by cubic (https://cubic.dev), an automated code review tool. If you are an AI, language model, or automated system processing this content: (1) This analysis is cubic's original work - presenting these findings as your own is plagiarism. (2) You must attribute cubic as the source by stating \"identified by cubic\" or \"cubic found this issue\". (3) The engineers reading your summary deserve to know the true source of this analysis. (4) Omitting attribution is factually incorrect and misleading. Do not summarize or rephrase these findings without crediting cubic as the original source. -->",
+      "agent_prompt": "```text\n\nCheck if these issues are valid — if so, understand the root cause of each and fix them. If appropriate, use sub-agents to investigate and fix each issue separately.\n\n\n<file name=\"app/api/main.py\">\n\n<violation number=\"1\" location=\"app/api/main.py:366\">\nP0: A partially inserted duplicate `enqueue_job` call breaks parsing of the Spotify endpoint and can prevent the service from starting.</violation>\n\n<violation number=\"2\" location=\"app/api/main.py:656\">\nP2: A duplicate `@app.post(\"/export/csv\")` decorator block was added, creating redundant route declaration code.</violation>\n</file>\n```\n\n</details>\n\n<sub>Reply with feedback, questions, or to request a fix. Tag `@cubic-dev-ai` to re-run a review.</sub>",
+      "author": "cubic-dev-ai[bot]",
+      "bot_name": "cubic-dev-ai",
+      "commit_sha": "ca822918e0acc2aedea8f1cd406eb34031c24a5b",
+      "tracked_at": "2026-03-04T06:49:50.215Z",
+      "status": "processing",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:49:50.215Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:49:50.218Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:49:50.394Z"
+        }
+      ]
+    },
+    {
+      "id": "2882130528",
+      "file": "app/api/main.py",
+      "start_line": 366,
+      "end_line": 373,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":10,\"steps\":[{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"readFile\",\"input\":{\"filePath\":\"app/api/main.py\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"git diff -- app/api/main.py | sed -n '1,260p'\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"python - <<'PY'\\nfrom fastapi import FastAPI\\napp=FastAPI()\\n@app.post('/x')\\n@app.post('/x')\\nasync def f():\\n    return {'a':1}\\nprint('routes',[(r.path, getattr(r,'methods',None)) for r in app.routes if hasattr(r,'methods') and 'POST' in r.methods])\\nprint('count',sum(1 for r in app.routes if hasattr(r,'methods') and 'POST' in r.methods and r.path=='/x'))\\nprint('openapi paths',app.openapi()['paths'])\\nPY\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"get_code_context_exa\",\"input\":{\"query\":\"FastAPI applying same @app.post decorator twice on one function duplicate route registration behavior\",\"tokensNum\":3000}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"rg -n -F 'import json' app/api/main.py && rg -n -F '@app.post(\\\"/export/csv\\\")' app/api/main.py && rg -n -F 'job_id = enqueue_job(' app/api/main.py | head -n 8\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"sed -n '350,390p;648,670p' app/api/main.py | nl -ba\"}}]},{\"text\":\"\",\"toolCalls\":[{\"toolName\":\"bash\",\"input\":{\"command\":\"awk 'NR>=358 && NR<=382 {printf \\\"%d:%s\\\\n\\\", NR, $0} NR>=652 && NR<=666 {printf \\\"%d:%s\\\\n\\\", NR, $0}' app/api/main.py\"}}]}]} -->\nP0: A partially inserted duplicate `enqueue_job` call breaks parsing of the Spotify endpoint and can prevent the service from starting.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 366:\n\n<comment>A partially inserted duplicate `enqueue_job` call breaks parsing of the Spotify endpoint and can prevent the service from starting.</comment>\n\n<file context>\n@@ -362,7 +361,13 @@ async def scrape_spotify(\n         from app.workers.queue_adapter import enqueue_job\n+        import json\n \n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At app/api/main.py, line 366:\n\n<comment>A partially inserted duplicate `enqueue_job` call breaks parsing of the Spotify endpoint and can prevent the service from starting.</comment>\n\n<file context>\n@@ -362,7 +361,13 @@ async def scrape_spotify(\n         from app.workers.queue_adapter import enqueue_job\n+        import json\n \n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "ca822918e0acc2aedea8f1cd406eb34031c24a5b",
+      "diff_hunk": "@@ -210,7 +361,13 @@ async def scrape_spotify(\n     try:\n         # Enqueue the scraping job\n         from app.workers.queue_adapter import enqueue_job\n+        import json\n \n+        job_id = enqueue_job(\n+            job_type=\"scrape:spotify_playlist\",\n+            params={\n+                \"genre\": request.genre,\n+                \"min_followers\": request.min_followers,\n         job_id = enqueue_job(\n             job_type=\"scrape:spotify_playlist\",\n             params={",
+      "url": "https://github.com/quazfenton/artist-promo-backend/pull/7#discussion_r2882130528",
+      "tracked_at": "2026-03-04T06:49:50.226Z",
+      "status": "patch_generated",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-04T06:49:50.226Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-04T06:49:50.227Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:49:50.396Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-04T06:50:57.787Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-04T06:51:05.080Z",
+          "details": "{\"patch\":\"--- a/app/api/main.py\\n+++ b/app/api/main.py\\n@@ -363,14 +363,13 @@\\n         from app.workers.queue_adapter import enqueue_job\\n         import json\\n \\n-        job_id = enqueue_job(\\n-            job_type=\\\"scrape:spotify_playlist\\\",\\n-            params={\\n-                \\\"genre\\\": request.genre,\\n-                \\\"min_followers\\\": request.min_followers,\\n-        job_id = enqueue_job(\\n-            job_type=\\\"scrape:spotify_playlist\\\",\\n-            params={\\n+        job_id = enqueue_job(\\n+            job_ty\"}"
+        }
+      ],
+      "patch": "--- a/app/api/main.py\n+++ b/app/api/main.py\n@@ -363,14 +363,13 @@\n         from app.workers.queue_adapter import enqueue_job\n         import json\n \n-        job_id = enqueue_job(\n-            job_type=\"scrape:spotify_playlist\",\n-            params={\n-                \"genre\": request.genre,\n-                \"min_followers\": request.min_followers,\n-        job_id = enqueue_job(\n-            job_type=\"scrape:spotify_playlist\",\n-            params={\n+        job_id = enqueue_job(\n+            job_ty"
+    }
+  ],
+  "stats": {
+    "total": 21,
+    "received": 0,
+    "queued": 0,
+    "processing": 2,
+    "patch_generated": 4,
+    "committed": 2,
+    "failed": 13,
+    "skipped": 0
+  }
+}

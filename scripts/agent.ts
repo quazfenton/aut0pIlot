@@ -71,12 +71,12 @@ export class PRAutopilotAgent {
     }
 
     if (hasPersonalToken && hasGitHubApp) {
-      console.warn('⚠️  Both GITHUB_TOKEN and GitHub App credentials provided. Using GITHUB_TOKEN.');
+      console.warn('⚠️  Multiple auth methods configured. Using GITHUB_TOKEN.');
     }
 
     // Initialize Octokit with appropriate authentication
     if (hasPersonalToken) {
-      console.log('🔑 Using Personal Access Token authentication');
+      console.log('🔑 Using token authentication');
       this.octokit = new Octokit({ auth: GITHUB_TOKEN });
     } else {
       console.log('🔑 Using GitHub App authentication');
