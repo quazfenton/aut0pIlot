@@ -1,5 +1,21 @@
 # Enhanced PR Autopilot Integration Guide
 
+> **⚠️ DEPRECATION NOTICE**
+> 
+> The following files described in this guide have been moved to `scripts/unused/`:
+> - `enhanced-qwen-session.ts` → Superseded by `qwen-interactive-session.ts`
+> - `robust-patch-generator.ts` → Kept for test reference only
+> - `enhanced-patch-integration.ts` → Never wired into production
+> - `enhanced-agent-integration.ts` → Never wired into production
+>
+> **Use these instead:**
+> - `scripts/qwen-interactive-session.ts` - New consolidated Qwen integration
+> - `scripts/iterative-patch-generator.ts` - Main iterative patch generation
+> - `scripts/patch-generator.ts` - Core patch generation (production)
+> - `scripts/utils/diff-utils.ts` - Professional diff generation
+> - `scripts/utils/code-quality-checker.ts` - Code quality validation
+> - `scripts/utils/patch-metrics.ts` - Patch metrics and reporting
+
 ## Overview
 
 This guide describes the enhanced architecture for PR Autopilot that addresses the critical issues with patch generation failures, webhook authentication, and state management.

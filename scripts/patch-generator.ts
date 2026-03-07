@@ -1011,17 +1011,18 @@ RULES:
   /**
     * Call LLM with failover: Gemini → Mistral → retries → Qwen (local CLI last resort)
     * USE_QWEN_PRIMARY=true overrides to try Qwen first.
-    * QWEN_DISCOVERY_MODE=true enables iterative mode with project context.
+    * QWEN_DISCOVERY_MODE=false disables iterative mode (default is enabled).
     */
   private async callLLM(prompt: string, patchRequest?: PatchRequest, fileContent?: FileSnapshot): Promise<{ success: boolean; output?: string; error?: string }> {
     const geminiAvailable = !!process.env.GEMINI_API_KEY;
     const mistralAvailable = !!process.env.MISTRAL_API_KEY;
     const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';
-    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE === 'true';
+    // QWEN_DISCOVERY_MODE defaults to true - set to 'false' to disable
+    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE !== 'false';
 
     // If discovery mode is enabled and we have file content, use IterativePatchGenerator
     if (qwenDiscoveryMode && fileContent && patchRequest) {
-      log.step(`QWEN_DISCOVERY_MODE enabled, using IterativePatchGenerator with project context`);
+      log.step(`Using IterativePatchGenerator with project context (QWEN_DISCOVERY_MODE)`);
       try {
         const result = await this.iterativeGenerator.generatePatchIterative(
           patchRequest,

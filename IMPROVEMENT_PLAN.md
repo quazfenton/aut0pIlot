@@ -150,7 +150,7 @@ Return ONLY a unified diff patch in this exact format:
 - Consider using `diff-match-patch` library for better alignment
 
 #### 3. Multi-file Change Detection
-- `QWEN_DISCOVERY_MODE` exists but needs integration with main flow
+- ✅ `QWEN_DISCOVERY_MODE` - NOW ENABLED BY DEFAULT - Uses `IterativePatchGenerator` with full project context
 - Should detect when changes in one file require updates elsewhere
 
 #### 4. Retry Logic Improvements

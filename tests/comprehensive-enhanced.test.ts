@@ -3,8 +3,9 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { RobustPatchGenerator } from '../scripts/robust-patch-generator';
-import { EnhancedQwenSession, EnhancedQwenOptions } from '../scripts/enhanced-qwen-session';
+// Note: RobustPatchGenerator and EnhancedQwenSession moved to unused/ folder
+import { RobustPatchGenerator } from '../scripts/unused/robust-patch-generator';
+import { EnhancedQwenSession, EnhancedQwenOptions } from '../scripts/unused/enhanced-qwen-session';
 import { EnhancedLogger } from '../scripts/enhanced-logging';
 import { PersistentPatchStateManager } from '../scripts/persistent-patch-state';
 import { GitOps } from '../scripts/git-ops';
