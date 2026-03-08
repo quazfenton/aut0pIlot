@@ -342,11 +342,18 @@ export class IterativePatchGenerator {
     const enhancedRequest = this.enhanceRequestWithFeedback(request, context);
 
     try {
-      // CRITICAL: Temporarily disable QWEN_DISCOVERY_MODE to prevent infinite recursion
-      // PatchGenerator.callLLM() checks this flag and will call back into IterativePatchGenerator
-      // if enabled, creating an infinite loop. We disable it here to break the cycle.
-      const originalMode = process.env.QWEN_DISCOVERY_MODE;
-      process.env.QWEN_DISCOVERY_MODE = 'false';
+      // CRITICAL: Avoid toggling `process.env.QWEN_DISCOVERY_MODE` globally due to race conditions.
+      // Instead, a request-scoped option is passed to PatchGenerator.
+      // This ensures PatchGenerator.callLLM() does not call back into IterativePatchGenerator
+      // (Qwen discovery mode) when already within an iterative generation process,
+      // preventing infinite recursion.
+      // The previous `process.env` manipulation has been removed.
+      
+      try {
+        // Pass an option to disable Qwen discovery mode for this specific patch generation call.
+        const result = await generator.generatePatch(enhancedRequest, level, false, { disableQwenDiscoveryMode: true });
+        
+        if (result.success && result.patch) {
       
       try {
         const result = await generator.generatePatch(enhancedRequest, level, false);

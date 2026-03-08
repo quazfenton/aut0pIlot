@@ -248,12 +248,16 @@ export class CodeQualityChecker {
           for (const chunk of parsedPatch.chunks) {
             if (chunk.changes) {
               for (const change of chunk.changes) {
-                if (change.type === 'add' && change.content !== undefined) {
-                  additions.push(change.content);
-                  contentLines.push(change.content);
-                } else if (change.type === 'normal' && change.content !== undefined) {
+                if (change.content === undefined) {
+                  continue;
+                }
+                const lineContent = change.content.substring(1);
+                if (change.type === 'add') {
+                  additions.push(lineContent);
+                  contentLines.push(lineContent);
+                } else if (change.type === 'normal') {
                   // Include context lines for content reconstruction
-                  contentLines.push(change.content);
+                  contentLines.push(lineContent);
                 }
               }
             }
