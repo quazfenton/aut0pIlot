@@ -34,7 +34,7 @@ export class PRAutopilotAgent {
   private octokit: Octokit;
   private parser = new ReviewParser();
   private configLoader: ConfigLoader;
-  private patchGenerator = new PatchGenerator();
+  private patchGenerator: PatchGenerator;
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
   private cleanupRegistered = false;
@@ -54,12 +54,12 @@ export class PRAutopilotAgent {
     }
 
     if (hasPersonalToken && hasGitHubApp) {
-      console.warn('⚠️  Both GITHUB_TOKEN and GitHub App credentials provided. Using GITHUB_TOKEN.');
+      console.warn('⚠️  Multiple auth methods configured. Using GITHUB_TOKEN.');
     }
 
     // Initialize Octokit with appropriate authentication
     if (hasPersonalToken) {
-      console.log('🔑 Using Personal Access Token authentication');
+      console.log('🔑 Using token authentication');
       this.octokit = new Octokit({ auth: GITHUB_TOKEN });
     } else {
       console.log('🔑 Using GitHub App authentication');
@@ -73,6 +73,8 @@ export class PRAutopilotAgent {
 
     this.configLoader = new ConfigLoader(this.octokit);
     this.gitOps = new GitOps(GITHUB_TOKEN!);
+    // CRITICAL: Pass shared gitOps to PatchGenerator to avoid multiple clone directories
+    this.patchGenerator = new PatchGenerator(this.gitOps);
 
     // Register raw body plugin FIRST, before any routes
     this.fastify.register(fastifyRawBody, {

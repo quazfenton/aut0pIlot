@@ -447,9 +447,13 @@ export class GitOps {
     }
   }
 
-  private getRepoDir(repo: string): string {
-    const [, repoName] = repo.split('/');
-    return path.join(this.workDir, repoName);
+  // Expose workDir for external scripts
+  getRepoDir(repo: string): string {
+    const parts = repo.split('/');
+    if (parts.length !== 2 || !parts[1]) {
+      throw new Error(`Invalid repo format: ${repo}. Expected 'owner/repo'`);
+    }
+    return path.join(this.workDir, parts[1]);
   }
 
   cleanup(): void {
@@ -467,5 +471,9 @@ export class GitOps {
   // Method to clear the cloned repos cache without full cleanup
   clearRepoCache(): void {
     clonedRepos.clear();
+  }
+
+  getWorkDir(): string {
+    return this.workDir;
   }
 }

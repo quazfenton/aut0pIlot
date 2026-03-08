@@ -9,7 +9,7 @@ const hasGitHubApp = !!(process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_
 
 if (hasPersonalToken) {
   console.log('  ✅ GITHUB_TOKEN: (set)');
-  console.log('     Using Personal Access Token authentication');
+  console.log('     Using token authentication');
 } else {
   console.log('  ❌ GITHUB_TOKEN: (not set)');
 }
@@ -17,11 +17,11 @@ if (hasPersonalToken) {
 console.log('');
 
 if (hasGitHubApp) {
-  console.log('  ✅ GITHUB_APP_ID:', process.env.GITHUB_APP_ID);
+  console.log('  ✅ GITHUB_APP_ID: (set)');
   console.log('  ✅ GITHUB_PRIVATE_KEY: (set)');
   console.log('     Using GitHub App authentication');
   if (process.env.GITHUB_APP_INSTALLATION_ID) {
-    console.log('  ✅ GITHUB_APP_INSTALLATION_ID:', process.env.GITHUB_APP_INSTALLATION_ID);
+    console.log('  ✅ GITHUB_APP_INSTALLATION_ID: (set)');
   } else {
     console.log('  ⚠️  GITHUB_APP_INSTALLATION_ID: (not set)');
   }
@@ -35,14 +35,14 @@ if (!hasPersonalToken && !hasGitHubApp) {
   console.log('  ❌ ERROR: No authentication method configured!');
   console.log('     Provide either GITHUB_TOKEN or GitHub App credentials.');
 } else if (hasPersonalToken && hasGitHubApp) {
-  console.log('  ⚠️  WARNING: Both authentication methods configured.');
+  console.log('  ⚠️  WARNING: Multiple authentication methods configured.');
   console.log('     GITHUB_TOKEN will be used (takes precedence).');
 }
 
 console.log('');
 console.log('Webhook:');
 if (process.env.WEBHOOK_SECRET) {
-  console.log('  ✅ WEBHOOK_SECRET: (set, length:', process.env.WEBHOOK_SECRET.length + ')');
+  console.log('  ✅ WEBHOOK_SECRET: (set)');
 } else {
   console.log('  ⚠️  WEBHOOK_SECRET: (not set - webhook verification will be skipped)');
 }

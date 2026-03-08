@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { IterativePatchGenerator } from './iterative-patch-generator';
 
 function gitExec(args: string, cwd: string, opts: { pipe?: boolean; timeout?: number } = {}): string {
   const result = execSync(`git ${args}`, {
@@ -60,9 +61,22 @@ interface FileSnapshot {
 
 export class PatchGenerator {
   private tempDir: string;
+  private iterativeGenerator: IterativePatchGenerator;
+  private gitOps: any; // GitOps instance - using 'any' to avoid circular dependency
+  // Thread-local flag to prevent recursive fallback into IterativePatchGenerator
+  private static inIterativeFallback = false;
 
-  constructor() {
+  constructor(gitOps?: any) {
     this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-autopilot-'));
+    // Use provided GitOps instance or create a new one
+    if (gitOps) {
+      this.gitOps = gitOps;
+    } else {
+      const { GitOps } = require('./git-ops');
+      this.gitOps = new GitOps(process.env.GITHUB_TOKEN);
+    }
+    // Initialize iterative generator with the same GitOps instance
+    this.iterativeGenerator = new IterativePatchGenerator(this.gitOps);
   }
 
   /**
@@ -398,17 +412,51 @@ export class PatchGenerator {
       }
     }
 
-    // If all else fails, try iterative Qwen mode as last resort
-    log.warn(`Standard LLM methods failed, trying iterative Qwen mode...`);
-    const iterativeResult = await this.callQwenIterative(request, fileContent, level, 3, useCliTools);
+    // If all else fails, try IterativePatchGenerator as last resort
+    // This is the most robust option with 5 rounds of iterative refinement
+    // BUT skip if we're already in a fallback chain to prevent infinite recursion
+    log.warn(`Standard LLM methods failed, trying IterativePatchGenerator...`);
+    if (PatchGenerator.inIterativeFallback) {
+      log.warn(`Skipping iterative fallback (already in fallback chain)`);
+      return {
+        success: false,
+        error: 'Standard methods failed and iterative fallback is already active',
+        requires_approval: true,
+      };
+    }
     
-    if (iterativeResult.success) {
-      return iterativeResult;
+    try {
+      // Set flag to prevent recursive fallback
+      PatchGenerator.inIterativeFallback = true;
+      
+      const iterativeResult = await this.iterativeGenerator.generatePatchIterative(
+        request,
+        level,
+        {
+          maxRounds: 5,
+          maxLlmRetries: 2,
+          useQwenInteractive: true,
+          enableFormatting: true,
+          useFullWorkspace: true,
+          timeoutPerRound: 180000
+        }
+      );
+
+      if (iterativeResult.success) {
+        log.success(`IterativePatchGenerator succeeded after standard methods failed`);
+        return iterativeResult;
+      }
+      log.warn(`IterativePatchGenerator also failed: ${iterativeResult.error}`);
+    } catch (error: any) {
+      log.error(`IterativePatchGenerator threw error: ${error.message}`);
+    } finally {
+      // Clear flag after iterative generation completes
+      PatchGenerator.inIterativeFallback = false;
     }
 
     return {
       success: false,
-      error: iterativeResult.error || 'Could not generate valid patch',
+      error: 'Could not generate valid patch after all methods exhausted',
       requires_approval: true,
     };
   }
@@ -654,27 +702,6 @@ export class PatchGenerator {
   /**
    * Extract code block from LLM response
    */
-  private extractCodeBlock(response: string): string | null {
-    // Try various code block formats
-    // Format 1: ```lang\ncode\n```
-    const match1 = response.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
-    if (match1) {
-      const code = match1[1].replace(/\r\n/g, '\n').trimEnd();
-      log.detail(`Extracted code block (${code.length} chars)`);
-      return code;
-    }
-
-    // Format 2: ```code```
-    const match2 = response.match(/```([\s\S]*?)```/);
-    if (match2) {
-      const code = match2[1].replace(/\r\n/g, '\n').trimEnd();
-      log.detail(`Extracted code block (${code.length} chars)`);
-      return code;
-    }
-
-    return null;
-  }
-
   private restoreBaselineIndent(newCode: string, originalLines: string[]): string {
     const leadingWs = (s: string) => (s.match(/^[\t ]*/)?.[0] ?? '');
 
@@ -977,12 +1004,13 @@ RULES:
     fs.writeFileSync(promptFile, prompt);
 
     try {
-      log.llmCall(`Calling Qwen CLI with ${prompt.length} chars`);
+      log.detail(`Calling Qwen with ${prompt.length} chars prompt`);
 
       // Use qwen with file input instead of piping
       const output = execSync(
         `qwen "$(cat ${promptFile})"`,
         {
+          cwd: this.tempDir,
           stdio: 'pipe',
           timeout: 180000,
           maxBuffer: 4 * 1024 * 1024,
@@ -993,13 +1021,13 @@ RULES:
       log.detail(`Qwen returned ${output.length} chars`);
 
       if (!output) {
-        return { success: false, error: 'Qwen returned empty output', retryable: false };
+        return { success: false, error: 'Qwen returned empty output' };
       }
 
       return { success: true, output };
     } catch (error: any) {
-      log.error(`Qwen CLI failed: ${error.message?.substring(0, 200)}`);
-      return { success: false, error: `Qwen CLI failed: ${error.message}`, retryable: false };
+      log.error(`Qwen failed: ${error.message?.substring(0, 200)}`);
+      return { success: false, error: `Qwen failed: ${error.message}` };
     } finally {
       if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);
     }
@@ -1008,22 +1036,45 @@ RULES:
   /**
     * Call LLM with failover: Gemini → Mistral → retries → Qwen (local CLI last resort)
     * USE_QWEN_PRIMARY=true overrides to try Qwen first.
-    * QWEN_DISCOVERY_MODE=true enables iterative mode with project context.
+    * QWEN_DISCOVERY_MODE=false disables iterative mode (default is enabled).
     */
   private async callLLM(prompt: string, patchRequest?: PatchRequest, fileContent?: FileSnapshot): Promise<{ success: boolean; output?: string; error?: string }> {
     const geminiAvailable = !!process.env.GEMINI_API_KEY;
     const mistralAvailable = !!process.env.MISTRAL_API_KEY;
     const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';
-    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE === 'true';
+    // QWEN_DISCOVERY_MODE defaults to true - set to 'false' to disable
+    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE !== 'false';
 
-    // If discovery mode is enabled and we have file content, use iterative Qwen directly
-    if (qwenDiscoveryMode && fileContent && patchRequest) {
-      log.step(`QWEN_DISCOVERY_MODE enabled, using iterative Qwen with project context`);
-      const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
-      if (result.success) {
-        return { success: true, output: result.patch };
+    // If discovery mode is enabled and we have file content, use IterativePatchGenerator
+    // BUT skip if we're already in a fallback chain to prevent infinite recursion
+    if (qwenDiscoveryMode && fileContent && patchRequest && !PatchGenerator.inIterativeFallback) {
+      log.step(`Using IterativePatchGenerator with project context (QWEN_DISCOVERY_MODE)`);
+      // Set flag to prevent recursive fallback
+      PatchGenerator.inIterativeFallback = true;
+      
+      try {
+        const result = await this.iterativeGenerator.generatePatchIterative(
+          patchRequest,
+          2,
+          {
+            maxRounds: 5,
+            maxLlmRetries: 2,
+            useQwenInteractive: true,
+            enableFormatting: true,
+            useFullWorkspace: true,
+            timeoutPerRound: 180000
+          }
+        );
+        if (result.success) {
+          return { success: true, output: result.patch };
+        }
+        log.warn(`IterativePatchGenerator failed, falling through to API providers`);
+      } catch (error: any) {
+        log.error(`IterativePatchGenerator threw error: ${error.message}`);
+      } finally {
+        // Clear flag after iterative generation completes
+        PatchGenerator.inIterativeFallback = false;
       }
-      log.warn(`Qwen discovery mode failed, falling through to API providers`);
     }
 
     if (useQwenPrimary) {
@@ -1035,10 +1086,29 @@ RULES:
 
     if (!geminiAvailable && !mistralAvailable) {
       log.warn(`No API keys configured, using local qwen CLI`);
-      if (fileContent && patchRequest) {
-        const result = await this.callQwenIterative(patchRequest, fileContent, 2, 3);
-        if (result.success) {
-          return { success: true, output: result.patch };
+      if (fileContent && patchRequest && !PatchGenerator.inIterativeFallback) {
+        // Use IterativePatchGenerator for better results (but not if already in fallback)
+        PatchGenerator.inIterativeFallback = true;
+        try {
+          const result = await this.iterativeGenerator.generatePatchIterative(
+            patchRequest,
+            2,
+            {
+              maxRounds: 3,
+              maxLlmRetries: 2,
+              useQwenInteractive: true,
+              enableFormatting: false,
+              useFullWorkspace: false,
+              timeoutPerRound: 120000
+            }
+          );
+          if (result.success) {
+            return { success: true, output: result.patch };
+          }
+        } catch (error: any) {
+          log.error(`IterativePatchGenerator failed: ${error.message}`);
+        } finally {
+          PatchGenerator.inIterativeFallback = false;
         }
       }
       return this.callQwen(prompt, patchRequest);
@@ -1386,7 +1456,7 @@ RULES:
           if (fetchAndCheckout(commitSha, repoDir)) {
             log.step(`Checked out commit ${commitSha}`);
           } else {
-            log.warn(`Could not checkout ${commitSha}, using current HEAD`);
+            log.warn(`Could not checkout ${commitSha}, using HEAD`);
           }
         }
 

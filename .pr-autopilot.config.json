@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json.schemastore.org/pr-autopilot.config.json",
+  "autofix": {
+    "enabled": true,
+    "max_iterations": 5,
+    "risk_level": "medium",
+    "allowed_bots": [
+      "coderabbitai",
+      "cubic-dev-ai",
+      "coderabbit",
+      "greptileapps",
+      "graphiteapp",
+      "sourcery-ai",
+      "qodocodereview",
+      "codeant-ai"
+    ],
+    "branch_strategy": "helper_pr",
+    "require_approval_for_risky": true,
+    "use_cli_tools": true,
+    "use_iterative_generator": true,
+    "use_qwen_full_file": true,
+    "max_qwen_rounds": 5,
+    "qwen_timeout_ms": 180000,
+    "format_after_fix": true,
+    "batching": {
+      "enabled": true,
+      "max_wait_ms": 5000,
+      "max_comments_per_commit": 10
+    }
+  },
+  "approval_settings": {
+    "require_approval_for": {
+      "files": [
+        "**/*.env*",
+        "**/*secret*",
+        "**/*credential*",
+        "**/config/production.*",
+        "**/database.*",
+        "**/auth.*",
+        "**/security.*"
+      ],
+      "patterns": [
+        ".*password.*",
+        ".*api_key.*",
+        ".*secret.*",
+        ".*token.*"
+      ],
+      "risk_keywords": [
+        "security",
+        "vulnerability",
+        "authentication",
+        "authorization",
+        "breaking change",
+        "database schema",
+        "migration"
+      ]
+    },
+    "approval_methods": [
+      "comment_command",
+      "reaction",
+      "label"
+    ],
+    "approvers": [
+      "@owner",
+      "@admin"
+    ],
+    "auto_approve_bots": [
+      "prettier-bot",
+      "dependabot"
+    ]
+  },
+  "workflows": {
+    "enabled": false,
+    "steps": []
+  },
+  "exclude_paths": [
+    "**/*.lock",
+    "vendor/**",
+    "node_modules/**",
+    "**/*.min.js",
+    "**/*.min.css"
+  ],
+  "bot_settings": {
+    "coderabbitai": {
+      "process_all": true,
+      "auto_apply_suggestions": true
+    },
+    "cubic-dev-ai": {
+      "process_all": true,
+      "auto_apply_suggestions": true
+    },
+    "codeant-ai": {
+      "process_all": true,
+      "auto_apply_suggestions": true
+    }
+  }
+}
