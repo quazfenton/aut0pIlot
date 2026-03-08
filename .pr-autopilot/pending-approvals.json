@@ -1948,5 +1948,31 @@
     "reason": "risk_keyword",
     "createdAt": "2026-03-05T19:26:18.324Z",
     "status": "pending"
+  },
+  {
+    "id": "approval-quazfenton_aut0pIlot-2-2900779884",
+    "repo": "quazfenton/aut0pIlot",
+    "pr": 2,
+    "commentId": "2900779884",
+    "file": "scripts/patch-generator.ts",
+    "startLine": 1021,
+    "endLine": 1021,
+    "patch": "--- a/scripts/patch-generator.ts\n+++ b/scripts/patch-generator.ts\n@@ -998,27 +998,31 @@\n       if (!output) {\n         return { success: false, error: 'Qwen returned empty output' };\n       }\n-\n-      return { success: true, output };\n-    } catch (error: any) {\n-      log.error(`Qwen failed: ${error.message?.substring(0, 200)}`);\n-      return { success: false, error: `Qwen failed: ${error.message}` };\n-    } finally {\n-      if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);\n-    }\n-  }\n-\n-  /**\n-    * Call LLM with failover: Gemini → Mistral → retries → Qwen (local CLI last resort)\n-    * USE_QWEN_PRIMARY=true overrides to try Qwen first.\n-    * QWEN_DISCOVERY_MODE=false disables iterative mode (default is enabled).\n-    */\n-  private async callLLM(prompt: string, patchRequest?: PatchRequest, fileContent?: FileSnapshot): Promise<{ success: boolean; output?: string; error?: string }> {\n-    const geminiAvailable = !!process.env.GEMINI_API_KEY;\n-    const mistralAvailable = !!process.env.MISTRAL_API_KEY;\n-    const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';\n-    // QWEN_DISCOVERY_MODE defaults to true - set to 'false' to disable\n-    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE !== 'false';\n+      return { success: true, output };\n+    } catch (error: any) {\n+      log.error(`Qwen failed: ${error.message?.substring(0, 200)}`);\n+      return { success: false, error: `Qwen failed: ${error.message}` };\n+    } finally {\n+      if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);\n+    }\n+  }\n+\n+  /**\n+    * Call LLM with failover: Gemini → Mistral → retries → Qwen (local CLI last resort)\n+    * USE_QWEN_PRIMARY=true overrides to try Qwen first.\n+    * QWEN_DISCOVERY_MODE=false disables iterative mode (default is enabled).\n+    */\n+  private async callLLM(prompt: string, patchRequest?: PatchRequest, fileContent?: FileSnapshot, isRecursiveCall: boolean = false): Promise<{ success: boolean; output?: string; error?: string }> {\n+    const geminiAvailable = !!process.env.GEMINI_API_KEY;\n+    const mistralAvailable = !!process.env.MISTRAL_API_KEY;\n+    const useQwenPrimary = process.env.USE_QWEN_PRIMARY === 'true';\n+    // QWEN_DISCOVERY_MODE defaults to true - set to 'false' to disable\n+    const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE !== 'false';\n+\n+    // If discovery mode is enabled, we have file content, a patch request, and this is not a recursive call, use IterativePatchGenerator\n+    if (qwenDiscoveryMode && fileContent && patchRequest && !isRecursiveCall) {\n+      log.step(`Using IterativePatchGenerator with project context (QWEN_DISCOVERY_MODE)`);\n+      try {\n \n     // If discovery mode is enabled and we have file content, use IterativePatchGenerator\n     if (qwenDiscoveryMode && fileContent && patchRequest) {\n",
+    "reason": "risky_pattern",
+    "createdAt": "2026-03-08T20:26:19.700Z",
+    "status": "pending"
+  },
+  {
+    "id": "approval-quazfenton_binG-18-2900144480",
+    "repo": "quazfenton/binG",
+    "pr": 18,
+    "commentId": "2900144480",
+    "file": "hooks/use-websocket-terminal.ts",
+    "startLine": 156,
+    "endLine": 156,
+    "patch": "--- a/hooks/use-websocket-terminal.ts\n+++ b/hooks/use-websocket-terminal.ts\n@@ -133,27 +133,51 @@\n       const wsOptions: string[] | undefined = authToken \n         ? [`Bearer ${authToken}`] \n         : undefined;\n-\n-      wsRef.current = new WebSocket(url, wsOptions);\n-\n-      wsRef.current.onopen = () => {\n-        console.log('[WebSocketTerminal] Connected');\n-        setState(prev => ({\n-          ...prev,\n-          connected: true,\n-          connecting: false,\n-          error: null,\n-          reconnectCount: 0,\n-        }));\n-        onConnect?.();\n-      };\n-\n-      wsRef.current.onmessage = (event) => {\n-        const data = typeof event.data === 'string' ? event.data : event.data.toString();\n-        // Handle server ping/pong keepalive messages\n-        try {\n-          const msg = JSON.parse(data);\n-          if (msg.type === 'ping') {\n+\n+      wsRef.current = new WebSocket(url, wsOptions);\n+\n+      wsRef.current.onopen = () => {\n+        console.log('[WebSocketTerminal] Connected');\n+        setState(prev => ({\n+          ...prev,\n+          connected: true,\n+          connecting: false,\n+          error: null,\n+          reconnectCount: 0,\n+        }));\n+        onConnect?.();\n+      };\n+\n+      wsRef.current.onmessage = (event) => {\n+        const data = typeof event.data === 'string' ? event.data : event.data.toString();\n+\n+        let parsedMsg: any;\n+        try {\n+          parsedMsg = JSON.parse(data);\n+        } catch (e) {\n+          // If JSON parsing fails, it's treated as raw terminal output\n+          onOutput?.(data);\n+          return;\n+        }\n+\n+        // Check for dedicated keepalive protocol messages using a specific envelope\n+        if (parsedMsg && typeof parsedMsg === 'object' && parsedMsg.__protocol === 'keepalive') {\n+          if (parsedMsg.type === 'ping') {\n+            // Respond with pong message using the same protocol envelope\n+            wsRef.current?.send(JSON.stringify({ __protocol: 'keepalive', type: 'pong' }));\n+            return;\n+          }\n+          if (parsedMsg.type === 'pong') {\n+            // Just consume the pong message\n+            return;\n+          }\n+        }\n+\n+        // If it's JSON but not a recognized control message,\n+        // treat it as terminal output.\n+        // We pass the original string data to onOutput.\n+        onOutput?.(data);\n+      };\n             wsRef.current?.send(JSON.stringify({ type: 'pong' }));\n             return;\n           }\n",
+    "reason": "risky_pattern",
+    "createdAt": "2026-03-08T20:41:00.318Z",
+    "status": "pending"
   }
 ]

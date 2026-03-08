@@ -29,14 +29,23 @@
 
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
+<<<<<<< Updated upstream
+=======
+import * as fs from "fs";
+>>>>>>> Stashed changes
 
 // ============================================================================
 // CONFIGURATION - Environment variables follow project conventions
 // ============================================================================
 const CONFIG = {
+
+  // Force PAT auth even if App vars are set (optional)
+  usePat: process.env.USE_PAT_AUTH === "true",
+  
   // GitHub App authentication (optional)
   appId: process.env.GITHUB_APP_ID ? parseInt(process.env.GITHUB_APP_ID, 10) : undefined,
   privateKey: process.env.GITHUB_PRIVATE_KEY || "",
+  privateKeyPath: process.env.GITHUB_PRIVATE_KEY_PATH || "",
   installationId: process.env.GITHUB_APP_INSTALLATION_ID 
     ? parseInt(process.env.GITHUB_APP_INSTALLATION_ID, 10) 
     : undefined,
@@ -61,19 +70,43 @@ const CONFIG = {
 function validateConfig() {
   const errors: string[] = [];
 
+<<<<<<< Updated upstream
   const hasAppAuth = !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+=======
+  // Load private key from file if path is set and content is empty/invalid
+  if (CONFIG.privateKeyPath && (!CONFIG.privateKey || CONFIG.privateKey.length < 50)) {
+    try {
+      CONFIG.privateKey = fs.readFileSync(CONFIG.privateKeyPath, 'utf8');
+      console.log("[DEBUG] Loaded private key from:", CONFIG.privateKeyPath);
+    } catch (err: any) {
+      errors.push(`Cannot read private key file: ${CONFIG.privateKeyPath} - ${err.message}`);
+    }
+  }
+
+  const hasAppAuth = !CONFIG.usePat && !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+>>>>>>> Stashed changes
   const hasPatAuth = !!(CONFIG.token && CONFIG.owner && CONFIG.repo && CONFIG.hookId);
 
   if (!hasAppAuth && !hasPatAuth) {
     errors.push(
       "Authentication required. Choose one:\n" +
       "  GitHub App: GITHUB_APP_ID + GITHUB_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID\n" +
+<<<<<<< Updated upstream
       "  PAT: GITHUB_TOKEN + GITHUB_OWNER + GITHUB_REPO + GITHUB_HOOK_ID"
     );
   }
 
   if (hasAppAuth && hasPatAuth) {
     errors.push("Both GitHub App and PAT auth configured. Please use only one.");
+=======
+      "  PAT: GITHUB_TOKEN + GITHUB_OWNER + GITHUB_REPO + GITHUB_HOOK_ID\n" +
+      "  Or set USE_PAT_AUTH=true to force PAT mode"
+    );
+  }
+
+  if (hasAppAuth && hasPatAuth && !CONFIG.usePat) {
+    console.warn("⚠️  Both GitHub App and PAT auth configured. Using PAT (set USE_PAT_AUTH=true to confirm).");
+>>>>>>> Stashed changes
   }
 
   if (errors.length > 0) {
@@ -88,6 +121,7 @@ function validateConfig() {
 // Initialize Octokit with appropriate authentication
 // ============================================================================
 function createOctokit(): Octokit {
+<<<<<<< Updated upstream
   const hasAppAuth = !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
 
   if (hasAppAuth) {
@@ -95,6 +129,63 @@ function createOctokit(): Octokit {
     const privateKey = CONFIG.privateKey
       .replace(/\\n/g, '\n')
       .trim();
+=======
+  const hasAppAuth = !CONFIG.usePat && !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+
+  if (hasAppAuth) {
+    // Normalize the private key: handle various formats
+    let privateKey = CONFIG.privateKey;
+    
+    // Replace escaped newlines
+    privateKey = privateKey.replace(/\\n/g, '\n');
+    
+    // Fix common formatting issues
+    // Add newline before -----END if missing (e.g., "base64data -----END" -> "base64data\n-----END")
+    privateKey = privateKey.replace(/([A-Za-z0-9+/=])\s+-----END/, '$1\n-----END');
+    
+    // Fix malformed headers/footers with missing spaces
+    privateKey = privateKey.replace(/-----BEGINRSA/, '-----BEGIN RSA ');
+    privateKey = privateKey.replace(/-----ENDRSA/, '-----END RSA ');
+    privateKey = privateKey.replace(/RSA\s+PRIVATE\s+KEY-----/, 'RSA PRIVATE KEY-----');
+    
+    // If key is on one line with spaces, restore proper PEM format
+    if (privateKey.includes(' ') && !privateKey.includes('\n')) {
+      // Split by spaces to get individual chunks
+      const chunks = privateKey.split(/\s+/);
+      
+      const lines = [];
+      let currentLine = '';
+      
+      for (const chunk of chunks) {
+        // Fix malformed headers/footers
+        let processedChunk = chunk;
+        if (chunk.includes('-----BEGIN') && !chunk.includes(' ')) {
+          processedChunk = '-----BEGIN RSA PRIVATE KEY-----';
+        } else if (chunk.includes('-----END') && !chunk.includes(' ')) {
+          processedChunk = '-----END RSA PRIVATE KEY-----';
+        }
+        
+        if (processedChunk.startsWith('-----')) {
+          // Header or footer - always on its own line
+          if (currentLine) lines.push(currentLine);
+          lines.push(processedChunk);
+          currentLine = '';
+        } else {
+          // Base64 content - only keep valid base64 chars
+          const cleanChunk = processedChunk.replace(/[^A-Za-z0-9+/=]/g, '');
+          currentLine += cleanChunk;
+          if (currentLine.length >= 64) {
+            lines.push(currentLine);
+            currentLine = '';
+          }
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+      privateKey = lines.join('\n');
+    }
+    
+    privateKey = privateKey.trim();
+>>>>>>> Stashed changes
 
     return new Octokit({
       authStrategy: createAppAuth,
@@ -178,7 +269,11 @@ async function fetchAllDeliveries(octokit: Octokit): Promise<any[]> {
   let page = 1;
   const perPage = 100; // Max allowed by GitHub API
 
+<<<<<<< Updated upstream
   const hasAppAuth = !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+=======
+  const hasAppAuth = !CONFIG.usePat && !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+>>>>>>> Stashed changes
   const endpoint = hasAppAuth 
     ? "GET /app/hook/deliveries" 
     : `GET /repos/{owner}/{repo}/hooks/{hook_id}/deliveries`;
@@ -255,7 +350,11 @@ async function redeliver(
   deliveryId: number,
   attempt: number = 1
 ): Promise<boolean> {
+<<<<<<< Updated upstream
   const hasAppAuth = !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+=======
+  const hasAppAuth = !CONFIG.usePat && !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+>>>>>>> Stashed changes
   const endpoint = hasAppAuth
     ? "POST /app/hook/deliveries/{delivery_id}/attempts"
     : `POST /repos/{owner}/{repo}/hooks/{hook_id}/deliveries/{delivery_id}/attempts`;
@@ -287,20 +386,39 @@ async function redeliver(
 // Main execution
 // ============================================================================
 async function main() {
+<<<<<<< Updated upstream
   const hasAppAuth = !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
   
   console.log("🔧 GitHub Webhook Redelivery Tool\n");
   console.log("Authentication:");
   if (hasAppAuth) {
+=======
+  const hasAppAuth = !CONFIG.usePat && !!(CONFIG.appId && CONFIG.privateKey && CONFIG.installationId);
+  const hasPatAuth = !!(CONFIG.token && CONFIG.owner && CONFIG.repo && CONFIG.hookId);
+
+  console.log("🔧 GitHub Webhook Redelivery Tool\n");
+  console.log("Authentication:");
+  if (hasAppAuth && !CONFIG.usePat) {
+>>>>>>> Stashed changes
     console.log("   Mode: GitHub App");
     console.log(`   App ID: ${CONFIG.appId}`);
     console.log(`   Installation ID: ${CONFIG.installationId}`);
     console.log(`   Private Key: [configured]`);
+<<<<<<< Updated upstream
   } else {
+=======
+  } else if (hasPatAuth) {
+>>>>>>> Stashed changes
     console.log("   Mode: Personal Access Token");
     console.log(`   Owner: ${CONFIG.owner}`);
     console.log(`   Repo: ${CONFIG.repo}`);
     console.log(`   Hook ID: ${CONFIG.hookId}`);
+<<<<<<< Updated upstream
+=======
+  } else if (CONFIG.usePat && !hasPatAuth) {
+    console.log("   Mode: Personal Access Token (forced)");
+    console.log("   ⚠️  Missing PAT credentials (GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_HOOK_ID)");
+>>>>>>> Stashed changes
   }
   console.log("");
   

@@ -34,7 +34,7 @@ export class PRAutopilotAgent {
   private octokit: Octokit;
   private parser = new ReviewParser();
   private configLoader: ConfigLoader;
-  private patchGenerator = new PatchGenerator();
+  private patchGenerator: PatchGenerator;
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
   private cleanupRegistered = false;
@@ -73,6 +73,8 @@ export class PRAutopilotAgent {
 
     this.configLoader = new ConfigLoader(this.octokit);
     this.gitOps = new GitOps(GITHUB_TOKEN!);
+    // CRITICAL: Pass shared gitOps to PatchGenerator to avoid multiple clone directories
+    this.patchGenerator = new PatchGenerator(this.gitOps);
 
     // Register raw body plugin FIRST, before any routes
     this.fastify.register(fastifyRawBody, {

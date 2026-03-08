@@ -2,6 +2,10 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// parse-diff module (use require to avoid esModuleInterop issues)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const parse = require('parse-diff');
+
 export interface CodeQualityReport {
   overall: {
     score: number; // 0-100
@@ -223,48 +227,54 @@ export class CodeQualityChecker {
   }
 
   /**
-   * Parse patch and extract file contents
+   * Parse patch and extract file contents using parse-diff library
+   * This handles edge cases like file deletions, renames, and binary files
    */
   private parsePatch(patch: string): Array<{ file: string; content: string; changes: string[] }> {
     const files: Array<{ file: string; content: string; changes: string[] }> = [];
-    const lines = patch.split('\n');
 
-    let currentFile = '';
-    let currentContent: string[] = [];
-    let changes: string[] = [];
+    try {
+      // Use parse-diff library for robust patch parsing
+      const parsedPatches = parse(patch);
 
-    for (const line of lines) {
-      if (line.startsWith('+++ b/')) {
-        // Save previous file
-        if (currentFile) {
-          files.push({
-            file: currentFile,
-            content: currentContent.join('\n'),
-            changes: [...changes]
-          });
+      for (const parsedPatch of parsedPatches) {
+        const fileName = parsedPatch.to || parsedPatch.from || 'unknown';
+
+        // Extract changes (additions only for security/content analysis)
+        const additions: string[] = [];
+        const contentLines: string[] = [];
+
+        if (parsedPatch.chunks) {
+          for (const chunk of parsedPatch.chunks) {
+            if (chunk.changes) {
+              for (const change of chunk.changes) {
+                if (change.type === 'add' && change.content !== undefined) {
+                  additions.push(change.content);
+                  contentLines.push(change.content);
+                } else if (change.type === 'normal' && change.content !== undefined) {
+                  // Include context lines for content reconstruction
+                  contentLines.push(change.content);
+                }
+              }
+            }
+          }
         }
 
-        // Start new file
-        currentFile = line.substring(6);
-        currentContent = [];
-        changes = [];
-      } else if (line.startsWith('+') && !line.startsWith('+++')) {
-        changes.push(line);
-        currentContent.push(line.substring(1));
-      } else if (line.startsWith(' ') || line.startsWith('-')) {
-        if (!line.startsWith('-')) {
-          currentContent.push(line.substring(1));
+        // Skip files with no actual changes (e.g., binary files, metadata-only)
+        if (additions.length === 0 && contentLines.length === 0) {
+          continue;
         }
+
+        files.push({
+          file: fileName,
+          content: contentLines.join('\n'),
+          changes: additions
+        });
       }
-    }
-
-    // Save last file
-    if (currentFile) {
-      files.push({
-        file: currentFile,
-        content: currentContent.join('\n'),
-        changes
-      });
+    } catch (error: any) {
+      console.warn(`Failed to parse patch: ${error.message}`);
+      // Fallback: return empty array if parsing fails
+      return [];
     }
 
     return files;
@@ -305,7 +315,12 @@ export class CodeQualityChecker {
         } catch (error: any) {
           errors.push(`${file}: ${error.message}`);
         }
-      } else if (ext === '.js' || ext === '.jsx') {
+      } else if (ext === '.jsx') {
+        language = 'javascript';
+        // Skip Function-based validation for JSX - it cannot parse JSX syntax
+        // JSX requires transpilation (Babel/TypeScript) before evaluation
+        // We'll rely on linting and formatting checks instead
+      } else if (ext === '.js') {
         language = 'javascript';
         try {
           // Basic JS syntax check
@@ -386,11 +401,37 @@ export class CodeQualityChecker {
 
     // Try ESLint if available
     try {
-      const { ESLint } = require('eslint') as typeof import('eslint');
-      const eslint = new ESLint({
-        useEslintrc: true,
-        overrideConfigFile: baseDir ? path.join(baseDir, '.eslintrc.json') : undefined
-      });
+      const eslintPkg = require('eslint') as typeof import('eslint');
+      const eslintVersion = require('eslint/package.json').version as string;
+      const [major, minor] = eslintVersion.split('.').map(Number);
+      const isModernEslint = major > 8 || (major === 8 && minor >= 21);
+
+      let eslint: any;
+
+      if (isModernEslint) {
+        // ESLint v8.21.0+: useEslintrc was removed
+        // Try to use flat config or fall back to recommended config
+        try {
+          eslint = new eslintPkg.ESLint({
+            overrideConfigFile: baseDir ? path.join(baseDir, 'eslint.config.js') : undefined,
+            ignore: false,
+            useEslintrc: false
+          });
+        } catch {
+          // Fallback: use recommended config without rc file
+          eslint = new eslintPkg.ESLint({
+            overrideConfig: { extends: ['eslint:recommended'] },
+            ignore: false,
+            useEslintrc: false
+          });
+        }
+      } else {
+        // ESLint < v8.21.0: useEslintrc is still available
+        eslint = new eslintPkg.ESLint({
+          useEslintrc: true,
+          overrideConfigFile: baseDir ? path.join(baseDir, '.eslintrc.json') : undefined
+        });
+      }
 
       for (const { file, content } of files) {
         const ext = path.extname(file).toLowerCase();
@@ -410,8 +451,9 @@ export class CodeQualityChecker {
                 }
               }
             }
-          } catch {
-            // ESLint config issue
+          } catch (error: any) {
+            // ESLint config or linting error - log but continue
+            console.warn(`ESLint error for ${file}: ${error.message}`);
           }
         }
       }
@@ -426,7 +468,8 @@ export class CodeQualityChecker {
         warnings,
         messages
       };
-    } catch {
+    } catch (error: any) {
+      console.warn(`ESLint not available: ${error.message}`);
       return { passed: true, tool: 'none', errors: 0, warnings: 0, messages: [] };
     }
   }
@@ -470,43 +513,48 @@ export class CodeQualityChecker {
     const securityPatterns = [
       {
         type: 'hardcoded_secret' as const,
-        pattern: /(password|secret|api_key|apikey|token|credential)\s*[:=]\s*['"][^'"]{8,}['"]/gi,
+        pattern: /(password|secret|api_key|apikey|token|credential)\s*[:=]\s*['"][^'"]{8,}['"]/i,
         severity: 'critical' as const,
         description: 'Potential hardcoded secret detected'
       },
       {
         type: 'sql_injection' as const,
-        pattern: /(execute|query|select|insert|update|delete).*\$\{|\+.*\{/gi,
+        pattern: /(execute|query|select|insert|update|delete).*\$\{|\+.*\{/i,
         severity: 'high' as const,
         description: 'Potential SQL injection vulnerability'
       },
       {
         type: 'eval_usage' as const,
-        pattern: /\b(eval|Function|setTimeout|setInterval)\s*\(/gi,
+        pattern: /\b(eval|Function|setTimeout|setInterval)\s*\(/i,
         severity: 'high' as const,
         description: 'Use of eval() or similar dangerous function'
       },
       {
         type: 'path_traversal' as const,
-        pattern: /\.\.[\\/]/g,
+        pattern: /\.\.[\\/]/,
         severity: 'medium' as const,
         description: 'Potential path traversal vulnerability'
       },
       {
         type: 'xss' as const,
-        pattern: /innerHTML\s*=|document\.write\s*\(/gi,
+        pattern: /innerHTML\s*=|document\.write\s*\(/i,
         severity: 'high' as const,
         description: 'Potential XSS vulnerability'
       }
     ];
 
     for (const { file, content, changes } of files) {
-      const allContent = content + '\n' + changes.join('\n');
-      const lines = allContent.split('\n');
+      // Only scan the changed lines (additions) for security issues
+      // Scanning full content + changes would duplicate lines and produce false positives
+      const linesToScan = changes.length > 0 ? changes : content.split('\n');
 
       for (const { type, pattern, severity, description } of securityPatterns) {
-        for (let i = 0; i < lines.length; i++) {
-          if (pattern.test(lines[i])) {
+        for (let i = 0; i < linesToScan.length; i++) {
+          // Reset lastIndex for global regexes to avoid state issues
+          if (pattern.global) {
+            pattern.lastIndex = 0;
+          }
+          if (pattern.test(linesToScan[i])) {
             issues.push({
               type,
               severity,

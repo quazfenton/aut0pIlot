@@ -93,15 +93,14 @@ export class DiffUtils {
 
     // Use diff library for proper unified diff generation
     try {
+      // Correct signature: createTwoFilesPatch(oldFileName, newFileName, oldContent, newContent, oldHeader, newHeader, options)
       const patch = createTwoFilesPatch(
         oldFileName,
         newFileName,
-        oldLabel,
-        newLabel,
         oldContent,
         newContent,
-        undefined,
-        undefined,
+        undefined,  // oldHeader (optional)
+        undefined,  // newHeader (optional)
         { context: contextLines }
       );
 
@@ -314,7 +313,7 @@ export class DiffUtils {
    * Check for balanced symbols in added content
    */
   private static checkBalancedSymbols(
-    file: Patch,
+    file: ParsedPatch,
     warnings: string[]
   ): void {
     if (!file.chunks) return;
@@ -562,7 +561,7 @@ export class DiffUtils {
    * Split a multi-file patch into individual file patches
    */
   static splitPatchByFile(patch: string): Array<{ file: string; patch: string }> {
-    const parsed: Patch[] = parse(patch);
+    const parsed: ParsedPatch[] = parse(patch);
     const result: Array<{ file: string; patch: string }> = [];
 
     for (const file of parsed) {
@@ -571,7 +570,23 @@ export class DiffUtils {
       singlePatch += `+++ b/${file.to}\n`;
 
       for (const chunk of file.chunks || []) {
-        singlePatch += chunk.content + '\n';
+        // Reconstruct chunk from changes if content is unavailable
+        // ParsedPatch chunks may have only 'changes' populated, not 'content'
+        if (chunk.content) {
+          singlePatch += chunk.content + '\n';
+        } else if (chunk.changes && chunk.changes.length > 0) {
+          // Reconstruct unified diff format from changes
+          singlePatch += `@@ -${chunk.oldStart},${chunk.oldLines} +${chunk.newStart},${chunk.newLines} @@\n`;
+          for (const change of chunk.changes) {
+            if (change.type === 'add') {
+              singlePatch += `+${change.content || ''}\n`;
+            } else if (change.type === 'del') {
+              singlePatch += `-${change.content || ''}\n`;
+            } else if (change.type === 'normal') {
+              singlePatch += ` ${change.content || ''}\n`;
+            }
+          }
+        }
       }
 
       result.push({

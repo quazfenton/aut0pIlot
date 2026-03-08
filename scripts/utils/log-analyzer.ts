@@ -312,8 +312,9 @@ export class LogAnalyzer {
       .reduce((sum, [_, count]) => sum + count, 0);
 
     // Estimate success/failure from error count
+    // Use case-insensitive matching to catch all variations (PATCH, Patch, patch)
     const failedPatches = analysis.errors.filter(e =>
-      e.category.includes('PATCH') || e.message.includes('patch')
+      e.category.toUpperCase().includes('PATCH') || e.message.toLowerCase().includes('patch')
     ).length;
 
     const successfulPatches = Math.max(0, patchEntries - failedPatches);

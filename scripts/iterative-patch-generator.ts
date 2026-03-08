@@ -335,19 +335,31 @@ export class IterativePatchGenerator {
   ): Promise<PatchResult> {
     // Import PatchGenerator dynamically to avoid circular dependency
     const { PatchGenerator } = await import('./patch-generator');
-    const generator = new PatchGenerator();
+    // CRITICAL: Pass the same gitOps instance to avoid multiple clone directories
+    const generator = new PatchGenerator(this.gitOps);
 
     // Enhance request with error feedback
     const enhancedRequest = this.enhanceRequestWithFeedback(request, context);
 
     try {
-      const result = await generator.generatePatch(enhancedRequest, level, false);
-
-      if (result.success && result.patch) {
-        log.detail(`Traditional LLM generated patch (${result.patch.length} chars)`);
+      // CRITICAL: Temporarily disable QWEN_DISCOVERY_MODE to prevent infinite recursion
+      // PatchGenerator.callLLM() checks this flag and will call back into IterativePatchGenerator
+      // if enabled, creating an infinite loop. We disable it here to break the cycle.
+      const originalMode = process.env.QWEN_DISCOVERY_MODE;
+      process.env.QWEN_DISCOVERY_MODE = 'false';
+      
+      try {
+        const result = await generator.generatePatch(enhancedRequest, level, false);
+        
+        if (result.success && result.patch) {
+          log.detail(`Traditional LLM generated patch (${result.patch.length} chars)`);
+        }
+        
+        return result;
+      } finally {
+        // Restore original value
+        process.env.QWEN_DISCOVERY_MODE = originalMode;
       }
-
-      return result;
     } catch (error: any) {
       log.error(`Traditional LLM failed: ${error.message}`);
       return {

@@ -2,7 +2,7 @@
   "repo": "quazfenton/binG",
   "pr_number": 18,
   "created_at": "2026-03-03T00:42:10.426Z",
-  "updated_at": "2026-03-05T19:26:45.443Z",
+  "updated_at": "2026-03-08T20:48:11.929Z",
   "comments": [
     {
       "id": "2872394674",
@@ -1114,6 +1114,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.158Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.984Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.070Z"
         }
       ]
     },
@@ -3619,6 +3627,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.187Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.984Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.164Z"
         }
       ]
     },
@@ -5216,6 +5232,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.213Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.984Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.245Z"
         }
       ]
     },
@@ -5948,6 +5972,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.241Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.360Z"
         }
       ]
     },
@@ -6265,6 +6297,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.265Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.482Z"
         }
       ]
     },
@@ -8949,6 +8989,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.286Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.596Z"
         }
       ]
     },
@@ -9780,6 +9828,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.317Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:21.729Z"
         }
       ]
     },
@@ -9803,7 +9859,7 @@
       "diff_hunk": "@@ -0,0 +1,489 @@\n+\"use client\";\n+\n+import React, { useState, useEffect } from 'react';\n+import { Button } from '../ui/button';\n+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';\n+import { Badge } from '../ui/badge';\n+import { Input } from '../ui/input';\n+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';\n+import { ScrollArea } from '../ui/scroll-area';\n+import {\n+  Globe,\n+  X,\n+  ExternalLink,\n+  RefreshCw,\n+  Maximize2,\n+  Minimize2,\n+  Search,\n+  Filter,\n+  Star,\n+  TrendingUp,\n+  AlertCircle,\n+  CheckCircle,\n+  Clock,\n+  MapPin,\n+  BarChart3,\n+  Eye,\n+  Share2,\n+  Bookmark,\n+  BookmarkCheck,\n+} from 'lucide-react';\n+import { toast } from 'sonner';\n+\n+interface CountryData {\n+  name: string;\n+  code: string;\n+  status: 'online' | 'offline' | 'degraded';\n+  uptime: number;\n+  responseTime: number;\n+  lastChecked: string;\n+  incidents?: number;\n+}\n+\n+interface ServiceStatus {\n+  service: string;\n+  status: 'operational' | 'degraded' | 'outage';\n+  uptime: number;\n+  incidents24h: number;\n+}\n+\n+const WorldMonitorEmbedPlugin: React.FC<{ onClose: () => void }> = ({ onClose }) => {\n+  const [iframeUrl, setIframeUrl] = useState('https://www.worldmonitor.app');\n+  const [isLoading, setIsLoading] = useState(true);\n+  const [iframeError, setIframeError] = useState<string | null>(null);\n+  const [isFullscreen, setIsFullscreen] = useState(false);\n+  const [bookmarks, setBookmarks] = useState<string[]>([]);\n+  const [searchQuery, setSearchQuery] = useState('');\n+  const [activeTab, setActiveTab] = useState<'embed' | 'status' | 'bookmarks'>('embed');\n+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);\n+  const [isReloading, setIsReloading] = useState(false);\n+  const [iframeKey, setIframeKey] = useState(0);\n+\n+  // Sample status data (in production, this would be fetched from an API)\n+  const [countryData, setCountryData] = useState<CountryData[]>([\n+    { name: 'United States', code: 'US', status: 'online', uptime: 99.9, responseTime: 45, lastChecked: new Date().toISOString() },\n+    { name: 'United Kingdom', code: 'GB', status: 'online', uptime: 99.8, responseTime: 52, lastChecked: new Date().toISOString() },\n+    { name: 'Germany', code: 'DE', status: 'online', uptime: 99.7, responseTime: 48, lastChecked: new Date().toISOString() },\n+    { name: 'France', code: 'FR', status: 'online', uptime: 99.6, responseTime: 55, lastChecked: new Date().toISOString() },\n+    { name: 'Japan', code: 'JP', status: 'degraded', uptime: 98.5, responseTime: 120, lastChecked: new Date().toISOString(), incidents: 2 },\n+    { name: 'Australia', code: 'AU', status: 'online', uptime: 99.4, responseTime: 85, lastChecked: new Date().toISOString() },\n+    { name: 'Brazil', code: 'BR', status: 'offline', uptime: 95.2, responseTime: 0, lastChecked: new Date().toISOString(), incidents: 5 },\n+    { name: 'India', code: 'IN', status: 'online', uptime: 99.1, responseTime: 95, lastChecked: new Date().toISOString() },\n+    { name: 'Canada', code: 'CA', status: 'online', uptime: 99.8, responseTime: 42, lastChecked: new Date().toISOString() },\n+    { name: 'Singapore', code: 'SG', status: 'online', uptime: 99.5, responseTime: 78, lastChecked: new Date().toISOString() },\n+  ]);\n+\n+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus[]>([\n+    { service: 'API Services', status: 'operational', uptime: 99.9, incidents24h: 0 },\n+    { service: 'Web Application', status: 'operational', uptime: 99.8, incidents24h: 0 },\n+    { service: 'Database', status: 'operational', uptime: 99.95, incidents24h: 0 },\n+    { service: 'CDN', status: 'degraded', uptime: 98.5, incidents24h: 1 },\n+    { service: 'Authentication', status: 'operational', uptime: 99.99, incidents24h: 0 },\n+  ]);\n+\n+  useEffect(() => {\n+    try {\n+      const saved = localStorage.getItem('world-monitor-bookmarks');\n+      if (saved) {\n+        setBookmarks(JSON.parse(saved));\n+      }\n+    } catch (e) {\n+      console.error('Failed to load bookmarks:', e);\n+    }\n+  }, []);\n+\n+  useEffect(() => {\n+    const timer = setTimeout(() => {\n+      setIsLoading(false);\n+    }, 2000);\n+    return () => clearTimeout(timer);\n+  }, [iframeKey]);\n+\n+  const handleReload = () => {\n+    setIsReloading(true);\n+    setIframeKey(prev => prev + 1);\n+    setTimeout(() => setIsReloading(false), 1000);\n+  };",
       "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2888992894",
       "tracked_at": "2026-03-05T11:32:03.427Z",
-      "status": "processing",
+      "status": "patch_generated",
       "status_history": [
         {
           "status": "received",
@@ -9960,8 +10016,26 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.351Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.284Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:53.479Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:46:13.405Z",
+          "details": "{\"patch\":\"--- a/components/plugins/world-monitor-embed-plugin.tsx\\n+++ b/components/plugins/world-monitor-embed-plugin.tsx\\n@@ -99,11 +99,13 @@\\n     return () => clearTimeout(timer);\\n   }, [iframeKey]);\\n \\n-  const handleReload = () => {\\n-    setIframeError(null);\\n-    setIsReloading(true);\\n-    setIframeKey(prev => prev + 1);\\n-    setTimeout(() => setIsReloading(false), 1000);\\n+  const handleReload = () => {\\n+    setIsReloading(true);\\n+    setIframeError(null);\\n+    setIsLoading(true);\\n+    setIframeKey(pre\"}"
         }
-      ]
+      ],
+      "patch": "--- a/components/plugins/world-monitor-embed-plugin.tsx\n+++ b/components/plugins/world-monitor-embed-plugin.tsx\n@@ -99,11 +99,13 @@\n     return () => clearTimeout(timer);\n   }, [iframeKey]);\n \n-  const handleReload = () => {\n-    setIframeError(null);\n-    setIsReloading(true);\n-    setIframeKey(prev => prev + 1);\n-    setTimeout(() => setIsReloading(false), 1000);\n+  const handleReload = () => {\n+    setIsReloading(true);\n+    setIframeError(null);\n+    setIsLoading(true);\n+    setIframeKey(pre"
     },
     {
       "id": "2888992862",
@@ -9976,7 +10050,7 @@
       "diff_hunk": "@@ -0,0 +1,444 @@\n+\"use client\";\n+\n+import React, { useState, useEffect } from 'react';\n+import { Button } from '../ui/button';\n+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';\n+import { Badge } from '../ui/badge';\n+import { Input } from '../ui/input';\n+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';\n+import { ScrollArea } from '../ui/scroll-area';\n+import {\n+  BookOpen,\n+  X,\n+  ExternalLink,\n+  RefreshCw,\n+  Maximize2,\n+  Minimize2,\n+  Search,\n+  Bookmark,\n+  BookmarkCheck,\n+  Globe,\n+  Clock,\n+  Star,\n+  FileText,\n+  Languages,\n+} from 'lucide-react';\n+import { toast } from 'sonner';\n+\n+interface BookmarkEntry {\n+  url: string;\n+  title: string;\n+  timestamp: number;\n+}\n+\n+interface SearchHistoryEntry {\n+  query: string;\n+  timestamp: number;\n+}\n+\n+const WikipediaEmbedPlugin: React.FC<{ onClose: () => void }> = ({ onClose }) => {\n+  const [iframeUrl, setIframeUrl] = useState('https://en.wikipedia.org/wiki/Main_Page');\n+  const [searchQuery, setSearchQuery] = useState('');\n+  const [isLoading, setIsLoading] = useState(true);\n+  const [iframeError, setIframeError] = useState<string | null>(null);\n+  const [isFullscreen, setIsFullscreen] = useState(false);\n+  const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);\n+  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([]);\n+  const [language, setLanguage] = useState('en');\n+  const [isReloading, setIsReloading] = useState(false);\n+  const [iframeKey, setIframeKey] = useState(0);\n+  const [activeTab, setActiveTab] = useState<'browse' | 'bookmarks' | 'history'>('browse');\n+\n+  const languages = [\n+    { code: 'en', name: 'English' },\n+    { code: 'es', name: 'Español' },\n+    { code: 'fr', name: 'Français' },\n+    { code: 'de', name: 'Deutsch' },\n+    { code: 'it', name: 'Italiano' },\n+    { code: 'pt', name: 'Português' },\n+    { code: 'ru', name: 'Русский' },\n+    { code: 'ja', name: '日本語' },\n+    { code: 'zh', name: '中文' },\n+    { code: 'ar', name: 'العربية' },\n+  ];\n+\n+  useEffect(() => {\n+    try {\n+      const savedBookmarks = localStorage.getItem('wikipedia-bookmarks');\n+      const savedHistory = localStorage.getItem('wikipedia-search-history');\n+      if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));\n+      if (savedHistory) setSearchHistory(JSON.parse(savedHistory));\n+    } catch (e) {\n+      console.error('Failed to load from localStorage:', e);\n+    }\n+  }, []);\n+\n+  useEffect(() => {\n+    const timer = setTimeout(() => {\n+      setIsLoading(false);\n+    }, 2000);\n+    return () => clearTimeout(timer);\n+  }, [iframeKey]);\n+\n+  const handleSearch = (e?: React.FormEvent) => {\n+    e?.preventDefault();\n+    if (!searchQuery.trim()) return;\n+\n+    const searchUrl = `https://${language}.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(searchQuery)}`;\n+    setIframeUrl(searchUrl);\n+    setActiveTab('browse');\n+\n+    // Add to history\n+    const newHistory = [\n+      { query: searchQuery, timestamp: Date.now() },\n+      ...searchHistory.filter(h => h.query !== searchQuery)\n+    ].slice(0, 20);\n+    setSearchHistory(newHistory);\n+    localStorage.setItem('wikipedia-search-history', JSON.stringify(newHistory));\n+\n+    setIsReloading(true);",
       "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2888992862",
       "tracked_at": "2026-03-05T11:32:03.470Z",
-      "status": "processing",
+      "status": "patch_generated",
       "status_history": [
         {
           "status": "received",
@@ -10133,8 +10207,26 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.381Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.480Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:46:13.725Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:46:55.579Z",
+          "details": "{\"patch\":\"--- a/components/plugins/wikipedia-embed-plugin.tsx\\n+++ b/components/plugins/wikipedia-embed-plugin.tsx\\n@@ -76,27 +76,34 @@\\n   useEffect(() => {\\n     const timer = setTimeout(() => {\\n       setIsLoading(false);\\n-    }, 2000);\\n-    return () => clearTimeout(timer);\\n-  }, [iframeKey]);\\n-\\n-  const handleSearch = (e?: React.FormEvent) => {\\n-    e?.preventDefault();\\n-    if (!searchQuery.trim()) return;\\n-\\n-    const searchUrl = `https://${language}.wikipedia.org/wiki/Special:Search?search=${encodeURI\"}"
         }
-      ]
+      ],
+      "patch": "--- a/components/plugins/wikipedia-embed-plugin.tsx\n+++ b/components/plugins/wikipedia-embed-plugin.tsx\n@@ -76,27 +76,34 @@\n   useEffect(() => {\n     const timer = setTimeout(() => {\n       setIsLoading(false);\n-    }, 2000);\n-    return () => clearTimeout(timer);\n-  }, [iframeKey]);\n-\n-  const handleSearch = (e?: React.FormEvent) => {\n-    e?.preventDefault();\n-    if (!searchQuery.trim()) return;\n-\n-    const searchUrl = `https://${language}.wikipedia.org/wiki/Special:Search?search=${encodeURI"
     },
     {
       "id": "2888992868",
@@ -10149,7 +10241,7 @@
       "diff_hunk": "@@ -0,0 +1,437 @@\n+\"use client\";\n+\n+import React, { useState, useEffect } from 'react';\n+import { Button } from '../ui/button';\n+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';\n+import { Input } from '../ui/input';\n+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';\n+import { ScrollArea } from '../ui/scroll-area';\n+import {\n+  Terminal,\n+  X,\n+  ExternalLink,\n+  RefreshCw,\n+  Maximize2,\n+  Minimize2,\n+  Search,\n+  Bookmark,\n+  BookmarkCheck,\n+  Zap,\n+  FileCode,\n+  Folder,\n+  Lightning,\n+  Cpu,\n+  CheckCircle,\n+} from 'lucide-react';\n+import { toast } from 'sonner';\n+\n+interface BookmarkEntry {\n+  projectId: string;\n+  title: string;\n+  timestamp: number;\n+}\n+\n+interface Template {\n+  id: string;\n+  name: string;\n+  description: string;\n+  icon: string;\n+  category: 'frontend' | 'backend' | 'fullstack' | 'other';\n+}\n+\n+const StackBlitzEmbedPlugin: React.FC<{ onClose: () => void }> = ({ onClose }) => {\n+  const [projectId, setProjectId] = useState('');\n+  const [iframeUrl, setIframeUrl] = useState('https://stackblitz.com');\n+  const [isLoading, setIsLoading] = useState(true);\n+  const [iframeError, setIframeError] = useState<string | null>(null);\n+  const [isFullscreen, setIsFullscreen] = useState(false);\n+  const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);\n+  const [isReloading, setIsReloading] = useState(false);\n+  const [iframeKey, setIframeKey] = useState(0);\n+  const [activeTab, setActiveTab] = useState<'embed' | 'templates' | 'bookmarks'>('embed');\n+  const [embedMode, setEmbedMode] = useState<'full' | 'editor' | 'preview'>('full');\n+\n+  const templates: Template[] = [\n+    { id: 'react', name: 'React', description: 'React with Vite', icon: '⚛️', category: 'frontend' },\n+    { id: 'react-ts', name: 'React TypeScript', description: 'React + TS + Vite', icon: '🔷', category: 'frontend' },\n+    { id: 'vue', name: 'Vue.js', description: 'Vue 3 with Vite', icon: '💚', category: 'frontend' },\n+    { id: 'angular', name: 'Angular', description: 'Angular latest', icon: '🅰️', category: 'frontend' },\n+    { id: 'svelte', name: 'Svelte', description: 'SvelteKit app', icon: '🧡', category: 'frontend' },\n+    { id: 'nextjs', name: 'Next.js', description: 'Next.js 14 App Router', icon: '▲', category: 'fullstack' },\n+    { id: 'remix', name: 'Remix', description: 'Remix framework', icon: '💿', category: 'fullstack' },\n+    { id: 'node', name: 'Node.js', description: 'Node backend', icon: '📦', category: 'backend' },\n+    { id: 'express', name: 'Express', description: 'Express API server', icon: '🚂', category: 'backend' },\n+    { id: 'nest', name: 'NestJS', description: 'NestJS framework', icon: '🏠', category: 'backend' },\n+    { id: 'python', name: 'Python', description: 'Python Flask', icon: '🐍', category: 'backend' },\n+    { id: 'deno', name: 'Deno', description: 'Deno runtime', icon: '🦕', category: 'backend' },\n+    { id: 'astro', name: 'Astro', description: 'Astro static site', icon: '🚀', category: 'frontend' },\n+    { id: 'solid', name: 'SolidJS', description: 'SolidJS framework', icon: '💎', category: 'frontend' },\n+    { id: 'qwik', name: 'Qwik', description: 'Qwik framework', icon: '⚡', category: 'frontend' },\n+    { id: 'rust', name: 'Rust', description: 'Rust WebAssembly', icon: '🦀', category: 'other' },\n+  ];\n+\n+  useEffect(() => {\n+    try {\n+      const savedBookmarks = localStorage.getItem('stackblitz-bookmarks');\n+      if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));\n+    } catch (e) {\n+      console.error('Failed to load from localStorage:', e);\n+    }\n+  }, []);\n+\n+  useEffect(() => {\n+    const timer = setTimeout(() => {\n+      setIsLoading(false);\n+    }, 2000);\n+    return () => clearTimeout(timer);\n+  }, [iframeKey]);\n+\n+  const handleLoadProject = (e?: React.FormEvent) => {\n+    e?.preventDefault();\n+    if (!projectId.trim()) {\n+      setIframeUrl('https://stackblitz.com');\n+    } else {\n+      const embedParam = embedMode === 'full' ? '' : `?embed=1&file=${embedMode === 'editor' ? 'src/index.ts' : ''}`;\n+      const url = `https://stackblitz.com/edit/${projectId}${embedParam}`;\n+      setIframeUrl(url);\n+    }\n+    setActiveTab('embed');\n+    setIsReloading(true);",
       "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2888992868",
       "tracked_at": "2026-03-05T11:32:03.501Z",
-      "status": "processing",
+      "status": "patch_generated",
       "status_history": [
         {
           "status": "received",
@@ -10306,8 +10398,26 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.408Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.595Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:46:55.698Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:47:31.991Z",
+          "details": "{\"patch\":\"--- a/components/plugins/stackblitz-embed-plugin.tsx\\n+++ b/components/plugins/stackblitz-embed-plugin.tsx\\n@@ -76,27 +76,33 @@\\n       if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));\\n     } catch (e) {\\n       console.error('Failed to load from localStorage:', e);\\n-    }\\n-  }, []);\\n-\\n-  useEffect(() => {\\n-    const timer = setTimeout(() => {\\n-      setIsLoading(false);\\n-    }, 2000);\\n-    return () => clearTimeout(timer);\\n-  }, [iframeKey]);\\n-\\n-  const handleLoadProject = (e?: React.F\"}"
         }
-      ]
+      ],
+      "patch": "--- a/components/plugins/stackblitz-embed-plugin.tsx\n+++ b/components/plugins/stackblitz-embed-plugin.tsx\n@@ -76,27 +76,33 @@\n       if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));\n     } catch (e) {\n       console.error('Failed to load from localStorage:', e);\n-    }\n-  }, []);\n-\n-  useEffect(() => {\n-    const timer = setTimeout(() => {\n-      setIsLoading(false);\n-    }, 2000);\n-    return () => clearTimeout(timer);\n-  }, [iframeKey]);\n-\n-  const handleLoadProject = (e?: React.F"
     },
     {
       "id": "2888992889",
@@ -10322,7 +10432,7 @@
       "diff_hunk": "@@ -0,0 +1,489 @@\n+\"use client\";\n+\n+import React, { useState, useEffect } from 'react';\n+import { Button } from '../ui/button';\n+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';\n+import { Badge } from '../ui/badge';\n+import { Input } from '../ui/input';\n+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';\n+import { ScrollArea } from '../ui/scroll-area';\n+import {\n+  Globe,\n+  X,\n+  ExternalLink,\n+  RefreshCw,\n+  Maximize2,\n+  Minimize2,\n+  Search,\n+  Filter,\n+  Star,\n+  TrendingUp,\n+  AlertCircle,\n+  CheckCircle,\n+  Clock,\n+  MapPin,\n+  BarChart3,\n+  Eye,\n+  Share2,\n+  Bookmark,\n+  BookmarkCheck,\n+} from 'lucide-react';\n+import { toast } from 'sonner';\n+\n+interface CountryData {\n+  name: string;\n+  code: string;\n+  status: 'online' | 'offline' | 'degraded';\n+  uptime: number;\n+  responseTime: number;\n+  lastChecked: string;\n+  incidents?: number;\n+}\n+\n+interface ServiceStatus {\n+  service: string;\n+  status: 'operational' | 'degraded' | 'outage';\n+  uptime: number;\n+  incidents24h: number;\n+}\n+\n+const WorldMonitorEmbedPlugin: React.FC<{ onClose: () => void }> = ({ onClose }) => {\n+  const [iframeUrl, setIframeUrl] = useState('https://www.worldmonitor.app');\n+  const [isLoading, setIsLoading] = useState(true);\n+  const [iframeError, setIframeError] = useState<string | null>(null);\n+  const [isFullscreen, setIsFullscreen] = useState(false);\n+  const [bookmarks, setBookmarks] = useState<string[]>([]);\n+  const [searchQuery, setSearchQuery] = useState('');\n+  const [activeTab, setActiveTab] = useState<'embed' | 'status' | 'bookmarks'>('embed');\n+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);\n+  const [isReloading, setIsReloading] = useState(false);\n+  const [iframeKey, setIframeKey] = useState(0);\n+\n+  // Sample status data (in production, this would be fetched from an API)\n+  const [countryData, setCountryData] = useState<CountryData[]>([\n+    { name: 'United States', code: 'US', status: 'online', uptime: 99.9, responseTime: 45, lastChecked: new Date().toISOString() },\n+    { name: 'United Kingdom', code: 'GB', status: 'online', uptime: 99.8, responseTime: 52, lastChecked: new Date().toISOString() },\n+    { name: 'Germany', code: 'DE', status: 'online', uptime: 99.7, responseTime: 48, lastChecked: new Date().toISOString() },\n+    { name: 'France', code: 'FR', status: 'online', uptime: 99.6, responseTime: 55, lastChecked: new Date().toISOString() },\n+    { name: 'Japan', code: 'JP', status: 'degraded', uptime: 98.5, responseTime: 120, lastChecked: new Date().toISOString(), incidents: 2 },\n+    { name: 'Australia', code: 'AU', status: 'online', uptime: 99.4, responseTime: 85, lastChecked: new Date().toISOString() },\n+    { name: 'Brazil', code: 'BR', status: 'offline', uptime: 95.2, responseTime: 0, lastChecked: new Date().toISOString(), incidents: 5 },\n+    { name: 'India', code: 'IN', status: 'online', uptime: 99.1, responseTime: 95, lastChecked: new Date().toISOString() },\n+    { name: 'Canada', code: 'CA', status: 'online', uptime: 99.8, responseTime: 42, lastChecked: new Date().toISOString() },\n+    { name: 'Singapore', code: 'SG', status: 'online', uptime: 99.5, responseTime: 78, lastChecked: new Date().toISOString() },\n+  ]);\n+\n+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus[]>([\n+    { service: 'API Services', status: 'operational', uptime: 99.9, incidents24h: 0 },\n+    { service: 'Web Application', status: 'operational', uptime: 99.8, incidents24h: 0 },\n+    { service: 'Database', status: 'operational', uptime: 99.95, incidents24h: 0 },\n+    { service: 'CDN', status: 'degraded', uptime: 98.5, incidents24h: 1 },\n+    { service: 'Authentication', status: 'operational', uptime: 99.99, incidents24h: 0 },\n+  ]);\n+\n+  useEffect(() => {\n+    try {\n+      const saved = localStorage.getItem('world-monitor-bookmarks');\n+      if (saved) {\n+        setBookmarks(JSON.parse(saved));\n+      }\n+    } catch (e) {\n+      console.error('Failed to load bookmarks:', e);\n+    }\n+  }, []);\n+\n+  useEffect(() => {\n+    const timer = setTimeout(() => {\n+      setIsLoading(false);\n+    }, 2000);\n+    return () => clearTimeout(timer);\n+  }, [iframeKey]);\n+\n+  const handleReload = () => {\n+    setIsReloading(true);\n+    setIframeKey(prev => prev + 1);\n+    setTimeout(() => setIsReloading(false), 1000);\n+  };\n+\n+  const handleOpenExternal = () => {\n+    window.open(iframeUrl, '_blank');",
       "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2888992889",
       "tracked_at": "2026-03-05T11:32:03.532Z",
-      "status": "processing",
+      "status": "failed",
       "status_history": [
         {
           "status": "received",
@@ -10479,8 +10589,32 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.445Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.721Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:47:32.133Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:48:11.448Z",
+          "details": "{\"patch\":\"--- a/components/plugins/world-monitor-embed-plugin.tsx\\n+++ b/components/plugins/world-monitor-embed-plugin.tsx\\n@@ -86,27 +86,32 @@\\n       const saved = localStorage.getItem('world-monitor-bookmarks');\\n       if (saved) {\\n         setBookmarks(JSON.parse(saved));\\n-      }\\n-    } catch (e) {\\n-      console.error('Failed to load bookmarks:', e);\\n-    }\\n-  }, []);\\n-\\n-  useEffect(() => {\\n-    const timer = setTimeout(() => {\\n-      setIsLoading(false);\\n-    }, 2000);\\n-    return () => clearTimeout(t\"}"
+        },
+        {
+          "status": "failed",
+          "timestamp": "2026-03-08T20:48:11.537Z",
+          "details": "{\"error\":\"Command failed: git apply --ignore-space-change --ignore-whitespace --recount \\\"/tmp/pr-autopilot-Erhneb/patch-1773002891472.patch\\\"\\nerror: patch failed: components/plugins/world-monitor-embed-plugin.tsx:86\\nerror: components/plugins/world-monitor-embed-plugin.tsx: patch does not apply\\n\"}"
         }
-      ]
+      ],
+      "patch": "--- a/components/plugins/world-monitor-embed-plugin.tsx\n+++ b/components/plugins/world-monitor-embed-plugin.tsx\n@@ -86,27 +86,32 @@\n       const saved = localStorage.getItem('world-monitor-bookmarks');\n       if (saved) {\n         setBookmarks(JSON.parse(saved));\n-      }\n-    } catch (e) {\n-      console.error('Failed to load bookmarks:', e);\n-    }\n-  }, []);\n-\n-  useEffect(() => {\n-    const timer = setTimeout(() => {\n-      setIsLoading(false);\n-    }, 2000);\n-    return () => clearTimeout(t",
+      "error": "Command failed: git apply --ignore-space-change --ignore-whitespace --recount \"/tmp/pr-autopilot-Erhneb/patch-1773002891472.patch\"\nerror: patch failed: components/plugins/world-monitor-embed-plugin.tsx:86\nerror: components/plugins/world-monitor-embed-plugin.tsx: patch does not apply\n"
     },
     {
       "id": "2888992874",
@@ -10502,7 +10636,7 @@
       "diff_hunk": "@@ -0,0 +1,477 @@\n+\"use client\";\n+\n+import React, { useState, useEffect } from 'react';\n+import { Button } from '../ui/button';\n+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';\n+import { Input } from '../ui/input';\n+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';\n+import { ScrollArea } from '../ui/scroll-area';\n+import {\n+  Map as MapIcon,\n+  X,\n+  ExternalLink,\n+  RefreshCw,\n+  Maximize2,\n+  Minimize2,\n+  Search,\n+  Bookmark,\n+  BookmarkCheck,\n+  MapPin,\n+  Navigation,\n+  Plus,\n+  Minus,\n+  Share2,\n+  Layers,\n+  Compass,\n+} from 'lucide-react';\n+import { toast } from 'sonner';\n+\n+interface BookmarkEntry {\n+  url: string;\n+  title: string;\n+  lat?: number;\n+  lon?: number;\n+  zoom?: number;\n+  timestamp: number;\n+}\n+\n+interface LocationEntry {\n+  name: string;\n+  lat: number;\n+  lon: number;\n+  zoom: number;\n+}\n+\n+const OpenStreetMapEmbedPlugin: React.FC<{ onClose: () => void }> = ({ onClose }) => {\n+  const [iframeUrl, setIframeUrl] = useState('https://www.openstreetmap.org/export/embed.html');\n+  const [searchQuery, setSearchQuery] = useState('');\n+  const [isLoading, setIsLoading] = useState(true);\n+  const [iframeError, setIframeError] = useState<string | null>(null);\n+  const [isFullscreen, setIsFullscreen] = useState(false);\n+  const [bookmarks, setBookmarks] = useState<BookmarkEntry[]>([]);\n+  const [isReloading, setIsReloading] = useState(false);\n+  const [iframeKey, setIframeKey] = useState(0);\n+  const [activeTab, setActiveTab] = useState<'map' | 'bookmarks' | 'locations'>('map');\n+  const [coordinates, setCoordinates] = useState({ lat: 51.505, lon: -0.09, zoom: 12 });\n+\n+  const defaultLocations: LocationEntry[] = [\n+    { name: 'London, UK', lat: 51.5074, lon: -0.1278, zoom: 12 },\n+    { name: 'New York, USA', lat: 40.7128, lon: -74.0060, zoom: 12 },\n+    { name: 'Paris, France', lat: 48.8566, lon: 2.3522, zoom: 12 },\n+    { name: 'Tokyo, Japan', lat: 35.6762, lon: 139.6503, zoom: 12 },\n+    { name: 'Sydney, Australia', lat: -33.8688, lon: 151.2093, zoom: 12 },\n+    { name: 'Berlin, Germany', lat: 52.5200, lon: 13.4050, zoom: 12 },\n+    { name: 'San Francisco, USA', lat: 37.7749, lon: -122.4194, zoom: 13 },\n+    { name: 'Singapore', lat: 1.3521, lon: 103.8198, zoom: 13 },\n+  ];\n+\n+  useEffect(() => {\n+    try {\n+      const savedBookmarks = localStorage.getItem('osm-bookmarks');\n+      if (savedBookmarks) setBookmarks(JSON.parse(savedBookmarks));\n+    } catch (e) {\n+      console.error('Failed to load from localStorage:', e);\n+    }\n+  }, []);\n+\n+  useEffect(() => {\n+    updateMapUrl();\n+  }, []);\n+\n+  useEffect(() => {\n+    const timer = setTimeout(() => {\n+      setIsLoading(false);\n+    }, 2000);\n+    return () => clearTimeout(timer);\n+  }, [iframeKey]);\n+\n+  const updateMapUrl = (lat?: number, lon?: number, zoom?: number) => {\n+    const newLat = lat ?? coordinates.lat;\n+    const newLon = lon ?? coordinates.lon;\n+    const newZoom = zoom ?? coordinates.zoom;\n+    \n+    const bbox = calculateBbox(newLat, newLon, newZoom);\n+    const url = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`;\n+    \n+    setIframeUrl(url);\n+    setCoordinates({ lat: newLat, lon: newLon, zoom: newZoom });\n+  };\n+\n+  const calculateBbox = (lat: number, lon: number, zoom: number): string => {\n+    const range = 360 / Math.pow(2, zoom);\n+    const latRange = range * 0.5;\n+    const lonRange = range;\n+    \n+    const minLon = lon - lonRange / 2;\n+    const maxLon = lon + lonRange / 2;\n+    const minLat = lat - latRange / 2;\n+    const maxLat = lat + latRange / 2;\n+    \n+    return `${minLon.toFixed(4)},${minLat.toFixed(4)},${maxLon.toFixed(4)},${maxLat.toFixed(4)}`;\n+  };\n+\n+  const handleSearch = (e?: React.FormEvent) => {\n+    e?.preventDefault();\n+    if (!searchQuery.trim()) return;\n+\n+    // Use Nominatim for geocoding\n+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1`)\n+      .then(res => res.json())\n+      .then(data => {\n+        if (data && data.length > 0) {\n+          const { lat, lon, display_name } = data[0];\n+          const newLat = parseFloat(lat);\n+          const newLon = parseFloat(lon);\n+          updateMapUrl(newLat, newLon, 14);\n+          toast.success(`Found: ${display_name}`);\n+        } else {\n+          toast.error('Location not found');\n+        }\n+      })\n+      .catch(() => {\n+        toast.error('Search failed');\n+      });\n+  };\n+\n+  const handleZoom = (delta: number) => {\n+    const newZoom = Math.max(1, Math.min(19, coordinates.zoom + delta));\n+    updateMapUrl(coordinates.lat, coordinates.lon, newZoom);\n+    setIsReloading(true);\n+    setIframeKey(prev => prev + 1);\n+    setTimeout(() => setIsReloading(false), 500);\n+  };\n+\n+  const handleReload = () => {\n+    setIsReloading(true);\n+    setIframeKey(prev => prev + 1);\n+    setTimeout(() => setIsReloading(false), 1000);\n+  };\n+\n+  const handleOpenExternal = () => {\n+    const fullUrl = `https://www.openstreetmap.org/?mlat=${coordinates.lat}&mlon=${coordinates.lon}#map=${coordinates.zoom}/${coordinates.lat}/${coordinates.lon}`;\n+    window.open(fullUrl, '_blank');\n+  };\n+\n+  const toggleBookmark = () => {\n+    const title = `Map: ${coordinates.lat.toFixed(4)}, ${coordinates.lon.toFixed(4)}`;\n+    const existing = bookmarks.find(b => \n+      Math.abs(b.lat! - coordinates.lat) < 0.001 && \n+      Math.abs(b.lon! - coordinates.lon) < 0.001\n+    );\n+    \n+    let newBookmarks;\n+    if (existing) {\n+      newBookmarks = bookmarks.filter(b => b !== existing);\n+      toast.success('Removed from bookmarks');\n+    } else {\n+      newBookmarks = [{\n+        url: iframeUrl,\n+        title,\n+        lat: coordinates.lat,\n+        lon: coordinates.lon,\n+        zoom: coordinates.zoom,\n+        timestamp: Date.now(),\n+      }, ...bookmarks];\n+      toast.success('Location bookmarked');\n+    }\n+    \n+    setBookmarks(newBookmarks);\n+    localStorage.setItem('osm-bookmarks', JSON.stringify(newBookmarks));\n+  };\n+\n+  const toggleFullscreen = () => {\n+    setIsFullscreen(!isFullscreen);\n+  };\n+\n+  const loadBookmark = (bookmark: BookmarkEntry) => {\n+    if (bookmark.lat && bookmark.lon && bookmark.zoom) {",
       "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2888992874",
       "tracked_at": "2026-03-05T11:32:03.563Z",
-      "status": "processing",
+      "status": "patch_generated",
       "status_history": [
         {
           "status": "received",
@@ -10659,8 +10793,26 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.478Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.868Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:48:11.566Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:48:11.855Z",
+          "details": "{\"patch\":\"--- a/components/plugins/openstreetmap-embed-plugin.tsx\\n+++ b/components/plugins/openstreetmap-embed-plugin.tsx\\n@@ -184,7 +184,7 @@\\n     setIsFullscreen(!isFullscreen);\\n   };\\n \\n-  const loadBookmark = (bookmark: BookmarkEntry) => {\\n+    if (typeof bookmark.lat === 'number' && typeof bookmark.lon === 'number' && typeof bookmark.zoom === 'number') {\\n     if (bookmark.lat && bookmark.lon && bookmark.zoom) {\\n       updateMapUrl(bookmark.lat, bookmark.lon, bookmark.zoom);\\n     } else {\\n\"}"
         }
-      ]
+      ],
+      "patch": "--- a/components/plugins/openstreetmap-embed-plugin.tsx\n+++ b/components/plugins/openstreetmap-embed-plugin.tsx\n@@ -184,7 +184,7 @@\n     setIsFullscreen(!isFullscreen);\n   };\n \n-  const loadBookmark = (bookmark: BookmarkEntry) => {\n+    if (typeof bookmark.lat === 'number' && typeof bookmark.lon === 'number' && typeof bookmark.zoom === 'number') {\n     if (bookmark.lat && bookmark.lon && bookmark.zoom) {\n       updateMapUrl(bookmark.lat, bookmark.lon, bookmark.zoom);\n     } else {\n"
     },
     {
       "id": "2888992964",
@@ -10832,6 +10984,18 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.512Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:22.996Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:48:11.929Z"
         }
       ]
     },
@@ -11005,6 +11169,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.547Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:23.130Z"
         }
       ]
     },
@@ -11178,6 +11350,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.578Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.283Z"
         }
       ]
     },
@@ -11351,6 +11531,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.617Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.426Z"
         }
       ]
     },
@@ -11524,6 +11712,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.652Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.578Z"
         }
       ]
     },
@@ -11697,6 +11893,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.684Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.651Z"
         }
       ]
     },
@@ -11870,6 +12074,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.712Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.770Z"
         }
       ]
     },
@@ -12043,6 +12255,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.749Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.878Z"
         }
       ]
     },
@@ -12223,6 +12443,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.782Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:24.996Z"
         }
       ]
     },
@@ -12396,6 +12624,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.812Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.114Z"
         }
       ]
     },
@@ -12576,6 +12812,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.852Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.228Z"
         }
       ]
     },
@@ -12756,6 +13000,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.881Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.344Z"
         }
       ]
     },
@@ -12929,6 +13181,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.907Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.457Z"
         }
       ]
     },
@@ -13027,6 +13287,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.946Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.573Z"
         }
       ],
       "patch": "--- a/docs/sdk/opensandbox/examples/vscode/build.sh\n+++ b/docs/sdk/opensandbox/examples/vscode/build.sh\n@@ -6,27 +6,31 @@\n # You may obtain a copy of the License at\n #\n #     http://www.apache.org/licenses/LICENSE-2.0\n-#\n-# Unless required by applicable law or agreed to in writing, software\n-# distributed under the License is distributed on an \"AS IS\" BASIS,\n-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n-# See the License for the specific language governing permissi"
@@ -13216,6 +13484,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.968Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.731Z"
         }
       ],
       "patch": "--- a/components/message-bubble.tsx\n+++ b/components/message-bubble.tsx\n@@ -470,27 +470,42 @@\n                       {...props}\n                     >\n                       {children}\n-                    </code>\n-                  );\n-                },\n-                p: ({ children }) => (\n-                  <p className={`${useCompactLayout ? 'mb-2' : 'mb-4'} leading-relaxed`}>\n-                    {children}\n-                  </p>\n-                ),\n-                ul: ({ children }) ="
@@ -14838,6 +15114,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:43.991Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:25.917Z"
         }
       ]
     },
@@ -15011,6 +15295,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.021Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.026Z"
         }
       ]
     },
@@ -15184,6 +15476,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.045Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.182Z"
         }
       ]
     },
@@ -15357,6 +15657,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.072Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.326Z"
         }
       ]
     },
@@ -15530,6 +15838,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.099Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.427Z"
         }
       ]
     },
@@ -15703,6 +16019,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.116Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.586Z"
         }
       ]
     },
@@ -15876,6 +16200,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.138Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.737Z"
         }
       ]
     },
@@ -16049,6 +16381,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.164Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:26.849Z"
         }
       ]
     },
@@ -16222,6 +16562,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.187Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.014Z"
         }
       ]
     },
@@ -16395,6 +16743,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.208Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.437Z"
         }
       ]
     },
@@ -16575,6 +16931,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.234Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.532Z"
         }
       ]
     },
@@ -16755,6 +17119,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.253Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.632Z"
         }
       ]
     },
@@ -16928,6 +17300,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.274Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.798Z"
         }
       ]
     },
@@ -17101,6 +17481,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.307Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:27.969Z"
         }
       ]
     },
@@ -17281,6 +17669,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.334Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.106Z"
         }
       ]
     },
@@ -17454,6 +17850,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.361Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.299Z"
         }
       ]
     },
@@ -17627,6 +18031,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.397Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.470Z"
         }
       ]
     },
@@ -17800,6 +18212,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.419Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.576Z"
         }
       ]
     },
@@ -17973,6 +18393,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.452Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.691Z"
         }
       ]
     },
@@ -18153,6 +18581,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.493Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.791Z"
         }
       ]
     },
@@ -18326,6 +18762,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.523Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:28.967Z"
         }
       ]
     },
@@ -18499,6 +18943,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.555Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.592Z"
         }
       ]
     },
@@ -18672,6 +19124,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.589Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.653Z"
         }
       ]
     },
@@ -18845,6 +19305,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.632Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.720Z"
         }
       ]
     },
@@ -19025,6 +19493,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.741Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.772Z"
         }
       ]
     },
@@ -19198,6 +19674,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.861Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.859Z"
         }
       ]
     },
@@ -19371,6 +19855,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.889Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:29.946Z"
         }
       ]
     },
@@ -19544,6 +20036,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.918Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:30.049Z"
         }
       ]
     },
@@ -19730,6 +20230,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.942Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:30.132Z"
         }
       ],
       "patch": "--- a/docs/sdk/codesandbox/core-concepts.mdx\n+++ b/docs/sdk/codesandbox/core-concepts.mdx\n@@ -1,9 +1,9 @@\n----\n-title: Core Concepts\n-description: What you need to know to get the most out of the SDK\n----\n-\n-import Hero from \"../../../../shared-components/Hero.js\";\n+---\n+title: Core Concepts\n+description: What you need to know to get the most out of the SDK\n+---\n+\n+import Hero from \"../../../../shared-components/Hero.js\";\n import { Callout } from 'nextra-theme-docs'\n \n <Hero\n"
@@ -19924,6 +20432,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.965Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.353Z"
         }
       ],
       "patch": "--- a/docs/sdk/codesandbox/core-concepts.mdx\n+++ b/docs/sdk/codesandbox/core-concepts.mdx\n@@ -1,4 +1,4 @@\n----\n+| Archived    | 20–60 seconds   | Disk from cold storage; will run setup tasks      |\n title: Core Concepts\n description: What you need to know to get the most out of the SDK\n ---\n"
@@ -20111,6 +20627,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:44.993Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.482Z"
         }
       ],
       "patch": "--- a/docs/sdk/TERMINAL_INTEGRATION_REVIEW.md\n+++ b/docs/sdk/TERMINAL_INTEGRATION_REVIEW.md\n@@ -1,9 +1,8 @@\n-# Terminal & Sandbox Integration Review - Technical Plan\n-\n-## Executive Summary\n-\n-This document details findings from a thorough review of the Terminal panel and sandbox integration, identifying UX flaws, backend issues, and missing seamless fallback functionality between PTY and non-PTY modes.\n-\n+# Terminal & Sandbox Integration Review - Technical Plan\n+\n+## Executive Summary\n+\n+This d"
@@ -20298,6 +20822,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.022Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.581Z"
         }
       ],
       "patch": "--- a/docs/sdk/PHASE3_FIXES_COMPLETE.md\n+++ b/docs/sdk/PHASE3_FIXES_COMPLETE.md\n@@ -1,9 +1,9 @@\n-# Phase 3 Fixes - COMPLETE Implementation Summary\n-\n-**Date**: 2026-02-27  \n-**Status**: ✅ **ALL PHASE 3 FIXES COMPLETE**\n-\n----\n+# Phase 3 Fixes - COMPLETE Implementation Summary\n+\n+**Date**: 2026-02-27  \n+**Status**: ⚠️ **PHASE 3 FIXES COMPLETE (Summary Requires Correction)**\n+\n+---\n \n ## Executive Summary\n \n"
@@ -20485,6 +21017,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.047Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.667Z"
         }
       ],
       "patch": "--- a/docs/sdk/codesandbox/commands.mdx\n+++ b/docs/sdk/codesandbox/commands.mdx\n@@ -1,9 +1,9 @@\n----\n-title: Commands\n-description: Learn how the CodeSandbox SDK's commands work.\n----\n-\n-import { Callout } from 'nextra-theme-docs'\n+---\n+title: Commands\n+description: Learn how the CodeSandbox SDK's commands work.\n+---\n+\n+import { Callout } from 'nextra-theme-docs'\n \n # Commands\n \n"
@@ -20918,6 +21458,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.067Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.759Z"
         }
       ]
     },
@@ -20987,6 +21535,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.090Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.860Z"
         }
       ]
     },
@@ -21056,6 +21612,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.119Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:31.951Z"
         }
       ]
     },
@@ -21125,6 +21689,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.144Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.082Z"
         }
       ]
     },
@@ -21194,6 +21766,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.165Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.185Z"
         }
       ]
     },
@@ -21263,6 +21843,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.190Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.287Z"
         }
       ]
     },
@@ -21750,6 +22338,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.219Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.366Z"
         }
       ]
     },
@@ -21808,6 +22404,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.238Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.473Z"
         }
       ],
       "patch": "--- a/lib/sandbox/core-sandbox-service.ts\n+++ b/lib/sandbox/core-sandbox-service.ts\n@@ -16,27 +16,33 @@\n    }\n \n    private async getProvider(): Promise<SandboxProvider> {\n-     if (!this._provider) {\n-       this._provider = await getSandboxProvider(this.primaryProviderType)\n-     }\n-     return this._provider\n-   }\n-\n-  private getDefaultResources(): { cpu: number; memory: number } {\n-    const parseOrDefault = (raw: string | undefined, fallback: number) => {\n-      const parsed = Number.parse"
@@ -21874,6 +22478,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.264Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.578Z"
         }
       ],
       "patch": "--- a/ACCESSIBILITY_CHECKER.md\n+++ b/ACCESSIBILITY_CHECKER.md\n@@ -29,7 +29,7 @@\n \n | Level | Normal Text | Large Text (18pt+/14pt bold) |\n |-------|-------------|------------------------------|\n-| **Level A** | 3:1 | 3:1 |\n+| **Level A** | N/A | N/A |\n | **Level AA** | 4.5:1 | 3:1 |\n | **Level AAA** | 7:1 | 4.5:1 |\n \n"
@@ -21933,6 +22545,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.292Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.734Z"
         }
       ],
       "patch": "--- a/FRAMER_MOTION_SUPPORT.md\n+++ b/FRAMER_MOTION_SUPPORT.md\n@@ -1,9 +1,9 @@\n-# Visual Editor - Framer Motion Animation Support\n-\n-## Overview\n-The Visual Editor now includes **Framer Motion** animation support with a visual animation builder. Create professional animations without writing code, then export ready-to-use Framer Motion components.\n-\n----\n+# Visual Editor - Framer Motion Animation Support\n+\n+## Overview\n+The Visual Editor now includes **Framer Motion** animation support with a vis"
@@ -21992,6 +22612,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.332Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:32.892Z"
         }
       ],
       "patch": "--- a/ACCESSIBILITY_CHECKER.md\n+++ b/ACCESSIBILITY_CHECKER.md\n@@ -208,27 +208,7 @@\n ```\n \n ### Example 3: Add Focus Styles\n-\n-```\n-1. Select interactive element\n-2. Run accessibility check\n-3. Click \"Add Focus Styles\"\n-4. Focus ring added for keyboard users\n-\n-Before: className=\"btn btn-primary\"\n-After:  className=\"btn btn-primary focus:outline-none focus:ring-2 focus:ring-blue-500\"\n-```\n-\n-### Example 4: Screen Reader Only Content\n-\n-```\n-1. Select element that should be visually hidden\n-2. Run"
@@ -22037,6 +22665,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.372Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:33.431Z"
         }
       ]
     },
@@ -22095,6 +22731,14 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.404Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:33.541Z"
         }
       ],
       "patch": "--- a/app/embed/[type]/embed-config.ts\n+++ b/app/embed/[type]/embed-config.ts\n@@ -235,27 +235,32 @@\n   },\n   'default': {\n     type: 'default',\n-    title: 'Embed',\n-    description: 'Embedded component',\n-    component: 'DefaultPlugin',\n-    metadata: {\n-      ogTitle: 'Embed - binG',\n-      ogDescription: 'Embedded component viewer',\n-    },\n-    settings: {\n-      allowFullscreen: true,\n-      minWidth: 800,\n-      minHeight: 600,\n-    },\n-  },\n-};\n-\n-export function getEmbedConfig(type: stri"
@@ -22154,19 +22798,119 @@
         {
           "status": "processing",
           "timestamp": "2026-03-05T19:26:45.443Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:33.650Z"
         }
       ],
       "patch": "--- a/app/embed/[type]/embed-config.ts\n+++ b/app/embed/[type]/embed-config.ts\n@@ -231,27 +231,34 @@\n       allowFullscreen: false,\n       minWidth: 600,\n       minHeight: 400,\n-    },\n-  },\n-  'default': {\n-    type: 'default',\n-    title: 'Embed',\n-    description: 'Embedded component',\n-    component: 'DefaultPlugin',\n-    metadata: {\n-      ogTitle: 'Embed - binG',\n-      ogDescription: 'Embedded component viewer',\n-    },\n-    settings: {\n-      allowFullscreen: true,\n-      minWidth: 800,\n-"
+    },
+    {
+      "id": "2900785209",
+      "file": "lib/mastra/agent-loop.ts",
+      "start_line": 1,
+      "end_line": 1,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":9} -->\nP1: The prompt now asks for WRITE/READ plain-text commands, but the loop executes only structured toolCalls. This can cause the agent to describe file edits without actually performing them.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At lib/mastra/agent-loop.ts, line 229:\n\n<comment>The prompt now asks for WRITE/READ plain-text commands, but the loop executes only structured toolCalls. This can cause the agent to describe file edits without actually performing them.</comment>\n\n<file context>\n@@ -226,21 +226,54 @@ Current workspace: ${this.context.workspacePath}\n Available Tools:\n ${this.tools.map(t => `- ${t.name}: ${t.description}`).join('\\n')}\n \n+TOOL CALLING FORMAT:\n+When you need to create or modify files, use this exact format:\n+\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At lib/mastra/agent-loop.ts, line 229:\n\n<comment>The prompt now asks for WRITE/READ plain-text commands, but the loop executes only structured toolCalls. This can cause the agent to describe file edits without actually performing them.</comment>\n\n<file context>\n@@ -226,21 +226,54 @@ Current workspace: ${this.context.workspacePath}\n Available Tools:\n ${this.tools.map(t => `- ${t.name}: ${t.description}`).join('\\n')}\n \n+TOOL CALLING FORMAT:\n+When you need to create or modify files, use this exact format:\n+\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "b757024a2998384b2f64dad73ed0546755c22589",
+      "diff_hunk": "@@ -0,0 +1,299 @@\n+/**",
+      "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2900785209",
+      "tracked_at": "2026-03-08T19:55:10.301Z",
+      "status": "processing",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-08T19:55:10.301Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T19:55:10.571Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T19:55:11.070Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T19:55:22.527Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:33.759Z"
+        }
+      ]
+    },
+    {
+      "id": "2900144480",
+      "file": "hooks/use-websocket-terminal.ts",
+      "start_line": 156,
+      "end_line": 156,
+      "type": "inline_comment",
+      "content": "<!-- metadata:{\"confidence\":6} -->\nP2: Parsing all terminal output as JSON and treating `type: 'ping'/'pong'` as control messages will silently drop legitimate terminal output that happens to be JSON with those fields. Consider adding a dedicated keepalive envelope/prefix so raw output isn’t misclassified.\n\n<details>\n<summary>Prompt for AI agents</summary>\n\n```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At hooks/use-websocket-terminal.ts, line 156:\n\n<comment>Parsing all terminal output as JSON and treating `type: 'ping'/'pong'` as control messages will silently drop legitimate terminal output that happens to be JSON with those fields. Consider adding a dedicated keepalive envelope/prefix so raw output isn’t misclassified.</comment>\n\n<file context>\n@@ -149,8 +149,18 @@ export function useWebSocketTerminal(config: WebSocketTerminalConfig) {\n+        // Handle server ping/pong keepalive messages\n+        try {\n+          const msg = JSON.parse(data);\n+          if (msg.type === 'ping') {\n+            wsRef.current?.send(JSON.stringify({ type: 'pong' }));\n+            return;\n</file context>\n```\n\n</details>",
+      "agent_prompt": "```text\nCheck if this issue is valid — if so, understand the root cause and fix it. At hooks/use-websocket-terminal.ts, line 156:\n\n<comment>Parsing all terminal output as JSON and treating `type: 'ping'/'pong'` as control messages will silently drop legitimate terminal output that happens to be JSON with those fields. Consider adding a dedicated keepalive envelope/prefix so raw output isn’t misclassified.</comment>\n\n<file context>\n@@ -149,8 +149,18 @@ export function useWebSocketTerminal(config: WebSocketTerminalConfig) {\n+        // Handle server ping/pong keepalive messages\n+        try {\n+          const msg = JSON.parse(data);\n+          if (msg.type === 'ping') {\n+            wsRef.current?.send(JSON.stringify({ type: 'pong' }));\n+            return;\n</file context>\n```\n\n</details>",
+      "author": "cubic-dev-ai[bot]",
+      "commit_sha": "2081384d8329ec7a147f027ffc782a40e581deaf",
+      "diff_hunk": "@@ -0,0 +1,285 @@\n+/**\n+ * WebSocket Terminal Hook\n+ * \n+ * Provides real-time WebSocket terminal connection with:\n+ * - JWT authentication\n+ * - PTY resize support\n+ * - Auto-reconnection\n+ * - Session persistence\n+ * \n+ * @example\n+ * ```typescript\n+ * const { connect, disconnect, send, terminalRef } = useWebSocketTerminal({\n+ *   sandboxId: 'sandbox-123',\n+ *   autoConnect: true,\n+ *   onOutput: (data) => console.log(data),\n+ * });\n+ * \n+ * // Connect manually\n+ * connect();\n+ * \n+ * // Send command\n+ * send('ls -la\\n');\n+ * \n+ * // Resize terminal\n+ * resize(80, 24);\n+ * \n+ * // Disconnect\n+ * disconnect();\n+ * ```\n+ */\n+\n+import { useState, useEffect, useCallback, useRef } from 'react';\n+\n+export interface WebSocketTerminalConfig {\n+  sandboxId: string;\n+  autoConnect?: boolean;\n+  onOutput?: (data: string) => void;\n+  onError?: (error: Error) => void;\n+  onConnect?: () => void;\n+  onDisconnect?: () => void;\n+  reconnectAttempts?: number;\n+  reconnectDelay?: number;\n+}\n+\n+export interface WebSocketTerminalState {\n+  connected: boolean;\n+  connecting: boolean;\n+  error: Error | null;\n+  reconnectCount: number;\n+}\n+\n+export interface WebSocketTerminalActions {\n+  connect: () => void;\n+  disconnect: () => void;\n+  send: (data: string) => void;\n+  resize: (cols: number, rows: number) => void;\n+  clear: () => void;\n+}\n+\n+const DEFAULT_CONFIG: Partial<WebSocketTerminalConfig> = {\n+  autoConnect: true,\n+  reconnectAttempts: 5,\n+  reconnectDelay: 1000,\n+};\n+\n+const WS_URL = process.env.NEXT_PUBLIC_WEBSOCKET_URL || `ws://localhost:${process.env.NEXT_PUBLIC_WEBSOCKET_PORT || 8080}`;\n+\n+export function useWebSocketTerminal(config: WebSocketTerminalConfig) {\n+  const {\n+    sandboxId,\n+    autoConnect = DEFAULT_CONFIG.autoConnect,\n+    onOutput,\n+    onError,\n+    onConnect,\n+    onDisconnect,\n+    reconnectAttempts = DEFAULT_CONFIG.reconnectAttempts,\n+    reconnectDelay = DEFAULT_CONFIG.reconnectDelay,\n+  } = config;\n+\n+  const wsRef = useRef<WebSocket | null>(null);\n+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);\n+  const [reconnectCount, setReconnectCount] = useState(0);\n+\n+  const [state, setState] = useState<WebSocketTerminalState>({\n+    connected: false,\n+    connecting: false,\n+    error: null,\n+    reconnectCount: 0,\n+  });\n+\n+  // Get auth token\n+  const getAuthToken = useCallback(() => {\n+    if (typeof window === 'undefined') return null;\n+    try {\n+      return localStorage.getItem('token');\n+    } catch {\n+      return null;\n+    }\n+  }, []);\n+\n+  // Build WebSocket URL with authentication\n+  const buildWebSocketUrl = useCallback(() => {\n+    const url = new URL(`${WS_URL}/sandboxes/${sandboxId}/terminal`);\n+    \n+    // Note: Token is now sent via WebSocket subprotocol, NOT in URL\n+    // This prevents token leakage in server logs and browser history\n+    \n+    return url.toString();\n+  }, [sandboxId]);\n+\n+  // Connect to WebSocket\n+  const connect = useCallback(() => {\n+    if (wsRef.current?.readyState === WebSocket.OPEN) {\n+      console.log('[WebSocketTerminal] Already connected');\n+      return;\n+    }\n+\n+    if (wsRef.current?.readyState === WebSocket.CONNECTING) {\n+      console.log('[WebSocketTerminal] Connection in progress');\n+      return;\n+    }\n+\n+    setState(prev => ({ ...prev, connecting: true, error: null }));\n+\n+    try {\n+      const url = buildWebSocketUrl();\n+      const authToken = getAuthToken();\n+      \n+      console.log('[WebSocketTerminal] Connecting to:', url);\n+\n+      // SECURITY: Send token via WebSocket subprotocol (not URL query param)\n+      // This prevents token leakage in logs and browser history\n+      const wsOptions: string[] | undefined = authToken \n+        ? [`Bearer ${authToken}`] \n+        : undefined;\n+\n+      wsRef.current = new WebSocket(url, wsOptions);\n+\n+      wsRef.current.onopen = () => {\n+        console.log('[WebSocketTerminal] Connected');\n+        setState(prev => ({\n+          ...prev,\n+          connected: true,\n+          connecting: false,\n+          error: null,\n+          reconnectCount: 0,\n+        }));\n+        onConnect?.();\n+      };\n+\n+      wsRef.current.onmessage = (event) => {\n+        const data = typeof event.data === 'string' ? event.data : event.data.toString();\n+        // Handle server ping/pong keepalive messages\n+        try {\n+          const msg = JSON.parse(data);\n+          if (msg.type === 'ping') {",
+      "url": "https://github.com/quazfenton/binG/pull/18#discussion_r2900144480",
+      "tracked_at": "2026-03-08T20:39:40.292Z",
+      "status": "processing",
+      "status_history": [
+        {
+          "status": "received",
+          "timestamp": "2026-03-08T20:39:40.292Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:39:40.387Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:39:40.691Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:39:49.822Z"
+        },
+        {
+          "status": "patch_generated",
+          "timestamp": "2026-03-08T20:41:00.255Z",
+          "details": "{\"patch\":\"--- a/hooks/use-websocket-terminal.ts\\n+++ b/hooks/use-websocket-terminal.ts\\n@@ -133,27 +133,51 @@\\n       const wsOptions: string[] | undefined = authToken \\n         ? [`Bearer ${authToken}`] \\n         : undefined;\\n-\\n-      wsRef.current = new WebSocket(url, wsOptions);\\n-\\n-      wsRef.current.onopen = () => {\\n-        console.log('[WebSocketTerminal] Connected');\\n-        setState(prev => ({\\n-          ...prev,\\n-          connected: true,\\n-          connecting: false,\\n-          error: null,\\n-   \"}"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.438Z"
+        },
+        {
+          "status": "queued",
+          "timestamp": "2026-03-08T20:45:20.985Z"
+        },
+        {
+          "status": "processing",
+          "timestamp": "2026-03-08T20:45:33.867Z"
+        }
+      ],
+      "patch": "--- a/hooks/use-websocket-terminal.ts\n+++ b/hooks/use-websocket-terminal.ts\n@@ -133,27 +133,51 @@\n       const wsOptions: string[] | undefined = authToken \n         ? [`Bearer ${authToken}`] \n         : undefined;\n-\n-      wsRef.current = new WebSocket(url, wsOptions);\n-\n-      wsRef.current.onopen = () => {\n-        console.log('[WebSocketTerminal] Connected');\n-        setState(prev => ({\n-          ...prev,\n-          connected: true,\n-          connecting: false,\n-          error: null,\n-   "
     }
   ],
   "stats": {
-    "total": 334,
+    "total": 336,
     "received": 0,
     "queued": 0,
-    "processing": 74,
-    "patch_generated": 18,
+    "processing": 71,
+    "patch_generated": 22,
     "committed": 42,
-    "failed": 162,
+    "failed": 163,
     "skipped": 38
   }
 }

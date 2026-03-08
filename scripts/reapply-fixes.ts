@@ -257,7 +257,8 @@ async function main() {
   
   const github = new Octokit({ auth: token });
   const gitOps = new GitOps(token);
-  const patchGenerator = new PatchGenerator();
+  // CRITICAL: Pass shared gitOps to PatchGenerator to avoid multiple clone directories
+  const patchGenerator = new PatchGenerator(gitOps);
   const commentTracker = new CommentTracker(path.dirname(filePath));
   
   try {

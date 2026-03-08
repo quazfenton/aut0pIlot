@@ -111,6 +111,17 @@ export class QwenInteractiveSession {
 
     this.repoDir = this.options.gitOps.getRepoDir(this.options.repo);
 
+    // CRITICAL: Verify the repo directory exists before proceeding
+    if (!this.repoDir || !fs.existsSync(this.repoDir)) {
+      throw new Error(
+        `Repository directory does not exist at ${this.repoDir}. ` +
+        `GitOps workDir: ${this.options.gitOps.getWorkDir()}, ` +
+        `Expected path: ${this.repoDir}`
+      );
+    }
+
+    log.detail(`Repo directory verified at ${this.repoDir}`);
+
     if (this.options.useFullWorkspace !== false) {
       // Full workspace mode - copy entire project
       await this.copyFullProject();
@@ -307,7 +318,22 @@ export class QwenInteractiveSession {
    * Create session context file for Qwen
    */
   private createContextFile(): void {
-    const context = `# Qwen Interactive Code Editing Session
+    const context = this.buildPromptContent();
+    fs.writeFileSync(path.join(this.workDir, 'CONTEXT.md'), context);
+  }
+
+  /**
+   * Build the interactive prompt for Qwen
+   */
+  private buildPrompt(): string {
+    return this.buildPromptContent();
+  }
+
+  /**
+   * Build prompt content (used by both createContextFile and buildPrompt)
+   */
+  private buildPromptContent(): string {
+    return `# Qwen Interactive Code Editing Session
 
 ## Task Overview
 You are an expert code editor. Fix the review comment by editing code files.
@@ -364,7 +390,13 @@ When done, output your changes as unified diff patches:
 - Make sure patches apply cleanly with correct context
 - Include 3 lines of context before/after changes
 `;
+  }
 
+  /**
+   * Create session context file for Qwen
+   */
+  private createContextFile(): void {
+    const context = this.buildPromptContent();
     fs.writeFileSync(path.join(this.workDir, 'SESSION_CONTEXT.md'), context);
   }
 

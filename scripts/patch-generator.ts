@@ -62,12 +62,21 @@ interface FileSnapshot {
 export class PatchGenerator {
   private tempDir: string;
   private iterativeGenerator: IterativePatchGenerator;
+  private gitOps: any; // GitOps instance - using 'any' to avoid circular dependency
+  // Thread-local flag to prevent recursive fallback into IterativePatchGenerator
+  private static inIterativeFallback = false;
 
-  constructor() {
+  constructor(gitOps?: any) {
     this.tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-autopilot-'));
-    // Initialize iterative generator with a GitOps instance
-    const { GitOps } = require('./git-ops');
-    this.iterativeGenerator = new IterativePatchGenerator(new GitOps(process.env.GITHUB_TOKEN));
+    // Use provided GitOps instance or create a new one
+    if (gitOps) {
+      this.gitOps = gitOps;
+    } else {
+      const { GitOps } = require('./git-ops');
+      this.gitOps = new GitOps(process.env.GITHUB_TOKEN);
+    }
+    // Initialize iterative generator with the same GitOps instance
+    this.iterativeGenerator = new IterativePatchGenerator(this.gitOps);
   }
 
   /**
@@ -405,8 +414,21 @@ export class PatchGenerator {
 
     // If all else fails, try IterativePatchGenerator as last resort
     // This is the most robust option with 5 rounds of iterative refinement
+    // BUT skip if we're already in a fallback chain to prevent infinite recursion
     log.warn(`Standard LLM methods failed, trying IterativePatchGenerator...`);
+    if (PatchGenerator.inIterativeFallback) {
+      log.warn(`Skipping iterative fallback (already in fallback chain)`);
+      return {
+        success: false,
+        error: 'Standard methods failed and iterative fallback is already active',
+        requires_approval: true,
+      };
+    }
+    
     try {
+      // Set flag to prevent recursive fallback
+      PatchGenerator.inIterativeFallback = true;
+      
       const iterativeResult = await this.iterativeGenerator.generatePatchIterative(
         request,
         level,
@@ -427,6 +449,9 @@ export class PatchGenerator {
       log.warn(`IterativePatchGenerator also failed: ${iterativeResult.error}`);
     } catch (error: any) {
       log.error(`IterativePatchGenerator threw error: ${error.message}`);
+    } finally {
+      // Clear flag after iterative generation completes
+      PatchGenerator.inIterativeFallback = false;
     }
 
     return {
@@ -1021,8 +1046,12 @@ RULES:
     const qwenDiscoveryMode = process.env.QWEN_DISCOVERY_MODE !== 'false';
 
     // If discovery mode is enabled and we have file content, use IterativePatchGenerator
-    if (qwenDiscoveryMode && fileContent && patchRequest) {
+    // BUT skip if we're already in a fallback chain to prevent infinite recursion
+    if (qwenDiscoveryMode && fileContent && patchRequest && !PatchGenerator.inIterativeFallback) {
       log.step(`Using IterativePatchGenerator with project context (QWEN_DISCOVERY_MODE)`);
+      // Set flag to prevent recursive fallback
+      PatchGenerator.inIterativeFallback = true;
+      
       try {
         const result = await this.iterativeGenerator.generatePatchIterative(
           patchRequest,
@@ -1042,6 +1071,9 @@ RULES:
         log.warn(`IterativePatchGenerator failed, falling through to API providers`);
       } catch (error: any) {
         log.error(`IterativePatchGenerator threw error: ${error.message}`);
+      } finally {
+        // Clear flag after iterative generation completes
+        PatchGenerator.inIterativeFallback = false;
       }
     }
 
@@ -1054,8 +1086,9 @@ RULES:
 
     if (!geminiAvailable && !mistralAvailable) {
       log.warn(`No API keys configured, using local qwen CLI`);
-      if (fileContent && patchRequest) {
-        // Use IterativePatchGenerator for better results
+      if (fileContent && patchRequest && !PatchGenerator.inIterativeFallback) {
+        // Use IterativePatchGenerator for better results (but not if already in fallback)
+        PatchGenerator.inIterativeFallback = true;
         try {
           const result = await this.iterativeGenerator.generatePatchIterative(
             patchRequest,
@@ -1074,6 +1107,8 @@ RULES:
           }
         } catch (error: any) {
           log.error(`IterativePatchGenerator failed: ${error.message}`);
+        } finally {
+          PatchGenerator.inIterativeFallback = false;
         }
       }
       return this.callQwen(prompt, patchRequest);

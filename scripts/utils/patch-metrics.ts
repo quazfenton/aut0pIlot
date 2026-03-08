@@ -32,10 +32,15 @@ export interface PatchMetrics {
 
 export interface PatchReport {
   metrics: PatchMetrics;
-  qualityReport?: CodeQualityReport;
+  qualityReport: CodeQualityReport;
   summary: string;
   recommendations: string[];
   timestamp: string;
+}
+
+interface MetricsWithQuality {
+  metrics: PatchMetrics;
+  qualityReport: CodeQualityReport;
 }
 
 export class PatchMetricsCalculator {
@@ -49,11 +54,19 @@ export class PatchMetricsCalculator {
    * Calculate comprehensive metrics for a patch
    */
   async calculateMetrics(patch: string): Promise<PatchMetrics> {
+    const result = await this.calculateMetricsWithQuality(patch);
+    return result.metrics;
+  }
+
+  /**
+   * Calculate metrics and return quality report together (avoids duplicate work)
+   */
+  private async calculateMetricsWithQuality(patch: string): Promise<MetricsWithQuality> {
     // Basic diff analysis
     const diffValidation = DiffUtils.validateDiff(patch);
     const changes = DiffUtils.extractChanges(patch);
 
-    // Code quality check
+    // Code quality check (called ONCE and reused)
     const qualityReport = await this.qualityChecker.checkPatch(patch);
 
     // Calculate metrics
@@ -114,6 +127,11 @@ export class PatchMetricsCalculator {
       qualityScore,
       qualityGrade
     };
+
+    return {
+      metrics,
+      qualityReport
+    };
   }
 
   /**
@@ -125,8 +143,10 @@ export class PatchMetricsCalculator {
     file?: string;
     author?: string;
   }): Promise<PatchReport> {
-    const metrics = await this.calculateMetrics(patch);
-    const qualityReport = await this.qualityChecker.checkPatch(patch);
+    // Reuse qualityReport from calculateMetricsWithQuality to avoid duplicate checkPatch() call
+    const result = await this.calculateMetricsWithQuality(patch);
+    const metrics = result.metrics;
+    const qualityReport = result.qualityReport;
 
     const summary = this.generateSummary(metrics, context);
     const recommendations = this.generateRecommendations(metrics, qualityReport);
@@ -187,7 +207,11 @@ export class PatchMetricsCalculator {
         }
         currentFile = line.substring(6);
         currentChanges = 0;
+      } else if (line.startsWith('--- a/') || line.startsWith('@@')) {
+        // Skip diff header lines and hunk headers - they're not code changes
+        continue;
       } else if (line.startsWith('+') || line.startsWith('-')) {
+        // Only count actual code additions/deletions, not diff metadata
         currentChanges++;
       }
     }

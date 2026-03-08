@@ -49,7 +49,7 @@ export class PRAutopilotAgent {
   private octokit: Octokit;
   private parser = new ReviewParser();
   private configLoader: ConfigLoader;
-  private patchGenerator = new PatchGenerator();
+  private patchGenerator: PatchGenerator;
   private gitOps: GitOps;
   private stateMachine = new PRStateMachine();
   private commentTracker = new CommentTracker();
@@ -89,6 +89,8 @@ export class PRAutopilotAgent {
 
     this.configLoader = new ConfigLoader(this.octokit);
     this.gitOps = new GitOps(GITHUB_TOKEN!);
+    // CRITICAL: Pass shared gitOps to PatchGenerator to avoid multiple clone directories
+    this.patchGenerator = new PatchGenerator(this.gitOps);
     this.webhooks = new Webhooks({ secret: WEBHOOK_SECRET });
     this.approvalManager = new ApprovalManager(this.octokit);
 
