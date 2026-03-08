@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PatchGenerator } from '../../scripts/patch-generator';
 import { PatchRequest } from '../../scripts/types';
 import * as fs from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { PatchGenerator } from '../../scripts/patch-generator';
+import { PatchRequest } from '../../scripts/types';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -24,6 +28,14 @@ describe('PatchGenerator', () => {
     it.skip('should extract a basic suggestion block', async () => {
       const request: PatchRequest = {
         repo: 'pr-autopilot/test-repo',
+<<<<<<< HEAD
+=======
+        pr: 1,
+        commit_sha: 'main',
+        file: 'test.ts',
+        start_line: 1,
+        end_line: 5,
+>>>>>>> origin/autopilot/pr-2-fixes
         pr: 1,
         commit_sha: 'main',
         file: 'test.ts',
@@ -34,9 +46,20 @@ describe('PatchGenerator', () => {
       };
 
       const result = await generator.generatePatch(request, 1);
+<<<<<<< HEAD
       expect(result.success).toBe(true);
       expect(result.patch).toBeDefined();
       expect(result.patch).toContain('const x = 1');
+=======
+
+      // Should attempt mechanical extraction first
+      expect(result?.patch).toBe('const x = 1;');
+    });
+
+    it('should handle multiple suggestion blocks', async () => {
+      const request: PatchRequest = {
+        repo: 'test/repo',
+>>>>>>> origin/autopilot/pr-2-fixes
     });
 
     it.skip('should handle multiple suggestion blocks', async () => {
@@ -127,14 +150,14 @@ const b = 2;
       // Initialize git repo
       const { execSync } = require('child_process');
       execSync('git init', { cwd: tempDir, stdio: 'ignore' });
-      execSync('git config user.email "test@test.com"', { cwd: tempDir, stdio: 'ignore' });
+      execSync('git config user.email "test @test.com"', { cwd: tempDir, stdio: 'ignore' });
       execSync('git config user.name "Test"', { cwd: tempDir, stdio: 'ignore' });
       execSync('git add .', { cwd: tempDir, stdio: 'ignore' });
       execSync('git commit -m "initial"', { cwd: tempDir, stdio: 'ignore' });
 
       const validPatch = `--- a/test.ts
 +++ b/test.ts
-@@ -1,1 +1,1 @@
+ @@ -1,1 +1,1 @@
 -const x = 1;
 +const x = 2;
 `;
@@ -143,6 +166,7 @@ const b = 2;
       fs.writeFileSync(patchFile, validPatch);
 
       // Test git apply --check
+<<<<<<< HEAD
       // FIX: Make assertion meaningful - check that patch either applies or fails as expected
       let applied = false;
       try {
@@ -151,6 +175,22 @@ const b = 2;
       } catch (error: any) {
         // Check if failure is expected (file might not exist in test setup)
         applied = false;
+=======
+      let applySucceeded = false;
+      try {
+        execSync(`git apply --check "${patchFile}"`, { cwd: tempDir, stdio: 'pipe' });
+        applySucceeded = true;
+      } catch (error) {
+        // Capture the error for assertion
+        applySucceeded = false;
+      }
+      
+      expect(applySucceeded).toBe(true);
+    });
+      } catch {
+        // If it fails, that's also valid behavior for this test setup
+        expect(true).toBe(true);
+>>>>>>> origin/autopilot/pr-2-fixes
       }
       // Test should verify git apply was called and returned a deterministic result
       expect(applied).toBeDefined(); // Patch handling is deterministic

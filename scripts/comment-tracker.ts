@@ -2,8 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ParsedReviewComment } from './types';
 
-export interface TrackedComment extends Omit<ParsedReviewComment, 'commit_sha'> {
-  commit_sha?: string;  // Make optional since it may not be set initially
+export interface TrackedComment extends ParsedReviewComment {
+  retry_count?: number;
+  last_error?: string;
+  patch?: string;
+  commit_sha?: string;
   tracked_at: string;
   status: 'received' | 'queued' | 'processing' | 'patch_generated' | 'committed' | 'failed' | 'skipped';
   status_history: Array<{
@@ -119,6 +122,7 @@ export class CommentTracker {
 
     // Check if comment already exists
     const existingIndex = file.comments.findIndex(c => c.id === comment.id);
+<<<<<<< HEAD
 
     const trackedComment: TrackedComment = {
       ...comment,
@@ -142,7 +146,31 @@ export class CommentTracker {
       trackedComment.error = existing.error;
       trackedComment.retry_count = existing.retry_count;
       file.comments[existingIndex] = trackedComment;
+=======
+
+    if (existingIndex >= 0) {
+      // Update existing comment while preserving all tracked fields
+      const existing = file.comments[existingIndex];
+      file.comments[existingIndex] = {
+        ...comment,
+        ...existing,
+        id: comment.id, // Ensure ID is never overwritten
+        status_history: existing.status_history,
+        tracked_at: existing.tracked_at,
+      };
+>>>>>>> origin/autopilot/pr-2-fixes
     } else {
+      const trackedComment: TrackedComment = {
+        ...comment,
+        tracked_at: new Date().toISOString(),
+        status: 'received',
+        status_history: [{
+          status: 'received',
+          timestamp: new Date().toISOString(),
+        }],
+      };
+      file.comments.push(trackedComment);
+    }
       file.comments.push(trackedComment);
     }
 
@@ -361,7 +389,17 @@ export class CommentTracker {
         }
         
         return {
+<<<<<<< HEAD
           repo,
+=======
+          repo: match[1].replace(/__(?!_)/g, '/').replace(/__/g, '_'),
+          prNumber: parseInt(match[2], 10),
+          file: path.join(this.baseDir, f),
+        };
+      }
+      return null;
+    }).filter(Boolean) as Array<{ repo: string; prNumber: number; file: string }>;
+>>>>>>> origin/autopilot/pr-2-fixes
           prNumber: parseInt(match[2], 10),
           file: path.join(this.baseDir, f),
         };

@@ -559,27 +559,31 @@ export class DiffUtils {
 
   /**
    * Split a multi-file patch into individual file patches
-   */
-  static splitPatchByFile(patch: string): Array<{ file: string; patch: string }> {
-    const parsed: ParsedPatch[] = parse(patch);
-    const result: Array<{ file: string; patch: string }> = [];
+   static splitPatchByFile(patch: string): Array<{ file: string; patch: string }> {
+     const parsed: ParsedPatch[] = parse(patch);
+     const result: Array<{ file: string; patch: string }> = [];
 
-    for (const file of parsed) {
-      // Reconstruct single-file patch
-      let singlePatch = `--- a/${file.from}\n`;
-      singlePatch += `+++ b/${file.to}\n`;
+     for (const file of parsed) {
+       // Reconstruct single-file patch
+       let singlePatch = `--- a/${file.from}\n`;
+       singlePatch += `+++ b/${file.to}\n`;
 
-      for (const chunk of file.chunks || []) {
-        // Reconstruct chunk from changes if content is unavailable
-        // ParsedPatch chunks may have only 'changes' populated, not 'content'
-        if (chunk.content) {
-          singlePatch += chunk.content + '\n';
-        } else if (chunk.changes && chunk.changes.length > 0) {
-          // Reconstruct unified diff format from changes
-          singlePatch += `@@ -${chunk.oldStart},${chunk.oldLines} +${chunk.newStart},${chunk.newLines} @@\n`;
-          for (const change of chunk.changes) {
-            if (change.type === 'add') {
-              singlePatch += `+${change.content || ''}\n`;
+       for (const chunk of file.chunks || []) {
+         // Reconstruct chunk from changes if content is unavailable
+         // ParsedPatch chunks may have only 'changes' populated, not 'content'
+         if (chunk.content) {
+           singlePatch += chunk.content + '\n';
+         } else if (chunk.changes && chunk.changes.length > 0) {
+           // Reconstruct unified diff format from changes
+           singlePatch += `@@ -${chunk.oldStart},${chunk.oldLines} +${chunk.newStart},${chunk.newLines} @@\n`;
+           for (const change of chunk.changes) {
+             if (change.type === 'add') {
+               singlePatch += `${change.content || ''}\n`;
+             } else if (change.type === 'del') {
+               singlePatch += `${change.content || ''}\n`;
+             } else if (change.type === 'normal') {
+               singlePatch += ` ${change.content || ''}\n`;
+             }
             } else if (change.type === 'del') {
               singlePatch += `-${change.content || ''}\n`;
             } else if (change.type === 'normal') {

@@ -1,9 +1,9 @@
 [
   {
-    "id": "approval-quazfenton_copamunDiaL-2-2881255170",
-    "repo": "quazfenton/copamunDiaL",
-    "pr": 2,
-    "commentId": "2881255170",
+    "id": "placeholder-seed-1",
+    "repo": "example/repo",
+    "pr": 0,
+    "commentId": "0000000000",
     "file": "lib/sanitizer.ts",
     "startLine": 36,
     "endLine": 36,

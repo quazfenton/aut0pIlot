@@ -33,6 +33,7 @@ export class PendingPatchManager {
     try {
       const content = fs.readFileSync(this.pendingFile, 'utf-8');
       const parsed = JSON.parse(content);
+<<<<<<< HEAD:scripts/unused/pending-patch-manager.ts
       // FIX: Validate parsed JSON is an array before returning
       if (!Array.isArray(parsed)) {
         console.warn('[PENDING-PATCH] Loaded non-array from pending file, returning empty array');
@@ -41,6 +42,14 @@ export class PendingPatchManager {
       return parsed;
     } catch (error: any) {
       console.warn('[PENDING-PATCH] Error loading pending patches:', error.message);
+=======
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+    } catch {
+>>>>>>> origin/autopilot/pr-2-fixes:scripts/pending-patch-manager.ts
       return [];
     }
   }

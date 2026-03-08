@@ -408,7 +408,7 @@ export class CodeQualityChecker {
       const eslintPkg = require('eslint') as typeof import('eslint');
       const eslintVersion = require('eslint/package.json').version as string;
       const [major, minor] = eslintVersion.split('.').map(Number);
-      const isModernEslint = major > 8 || (major === 8 && minor >= 21);
+      const isModernEslint = major >= 9;
 
       let eslint: any;
 

@@ -56,11 +56,11 @@ if (needsFix) {
   console.log("   The redeliver script now handles single-line keys automatically.\n");
   
   console.log("Method 2 - Fix the env var manually:");
-  console.log("   export GITHUB_PRIVATE_KEY=$(echo \"$GITHUB_PRIVATE_KEY\" | ");
-  console.log("     sed 's/ -----/\\n-----/g; s/----- /-----\\n/g; s/ \\+/\\n/g')\n");
-  
-  console.log("Method 3 - Use a file instead:");
-  console.log("   echo \"$GITHUB_PRIVATE_KEY\" | sed 's/ /\\n/g' > github-key.pem");
+  console.log("   Use the normalization helper from scripts/redeliver-failed-webhooks.ts:");
+  console.log("   export GITHUB_PRIVATE_KEY=$(npx tsx scripts/redeliver-failed-webhooks.ts normalize-key \"$GITHUB_PRIVATE_KEY\")\n");
+
+  console.log("Method 3 - Use a file with the normalization helper:");
+  console.log("   echo \"$GITHUB_PRIVATE_KEY\" | npx tsx scripts/redeliver-failed-webhooks.ts normalize-key - > github-key.pem");
   console.log("   export GITHUB_PRIVATE_KEY=$(cat github-key.pem)\n");
   
   // Show fixed version

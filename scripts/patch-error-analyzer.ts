@@ -199,10 +199,19 @@ export class PatchErrorAnalyzer {
       const oldStart = parseInt(headerMatch[1], 10);
       const newStart = parseInt(headerMatch[2], 10);
 
+<<<<<<< HEAD
       // FIX: Use startLine parameter to compute proper offset
       // The fileLines array might be a slice starting at startLine
       const offset = startLine > 1 ? startLine - 1 : 0;
       let fileLineIdx = oldStart - 1 + offset;
+=======
+      let fileLineIdx = (oldStart - 1) + (startLine - 1);
+      let patchLineIdx = 0;
+
+      for (const patchLine of hunk.lines) {
+        if (patchLine.startsWith('-')) {
+          // Context line - should match file
+>>>>>>> origin/autopilot/pr-2-fixes
       let patchLineIdx = 0;
 
       for (const patchLine of hunk.lines) {

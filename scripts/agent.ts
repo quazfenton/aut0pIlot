@@ -550,7 +550,16 @@ export class PRAutopilotAgent {
     if (runnable.length > 0) {
       // Mark runnable comments as queued
       this.commentTracker.markQueued(repofull, pr, runnable.map(c => c.id));
+<<<<<<< HEAD
 
+=======
+      for (const comment of cleanedComments) {
+        if (!runnable.some(r => r.id === comment.id)) {
+          this.commentTracker.updateStatus(repofull, pr, comment.id, 'skipped');
+        }
+      }
+      
+>>>>>>> origin/autopilot/pr-2-fixes
       this.stateMachine.addPendingComments(repofull, pr, runnable);
 
       // Check if a job for this PR is already in the queue

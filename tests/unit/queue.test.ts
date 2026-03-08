@@ -102,14 +102,25 @@ describe('Queue', () => {
     });
 
     it('should process jobs', async () => {
+      vi.useFakeTimers();
       const handler = vi.fn().mockResolvedValue({ success: true });
       queue.registerHandler('test', handler);
 
       queue.addJob('test', 'owner/repo', 123, {}, 0);
-      queue.start(100); // Process every 100ms
+      queue.start(100);
 
+<<<<<<< HEAD
       // Advance timers to trigger processing
       await vi.advanceTimersByTimeAsync(200);
+=======
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(handler).toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('should retry failed jobs', async () => {
+>>>>>>> origin/autopilot/pr-2-fixes
 
       expect(handler).toHaveBeenCalled();
     });
